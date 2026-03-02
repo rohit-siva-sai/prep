@@ -1,0 +1,480 @@
+"use client";
+
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { TopNav } from "@/components/layout/top-nav";
+import { AppBackground, Panel } from "@/components/ui/primitives";
+import { useAuth } from "@/contexts/auth-context";
+import {
+  completeInterviewSession,
+  getInterview,
+  getInterviewSession,
+  processInterviewAnswer,
+  saveInterviewResult,
+} from "@/lib/data-service";
+import { callGemini } from "@/lib/gemini-client";
+import { notify } from "@/lib/toast";
+import { InterviewSession } from "@/types/models";
+
+type SpeechRecognitionResultEventLike = {
+  resultIndex: number;
+  results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal?: boolean }>;
+};
+
+type SpeechRecognitionLike = {
+  lang: string;
+  interimResults: boolean;
+  continuous: boolean;
+  onstart: (() => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  onresult: ((event: SpeechRecognitionResultEventLike) => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+
+const parseJsonField = (raw: string, key: string, fallback: string | number) => {
+  const textMatch = raw.match(new RegExp(`"${key}"\\s*:\\s*"([^"]*)"`));
+  if (textMatch) return textMatch[1];
+  const numMatch = raw.match(new RegExp(`"${key}"\\s*:\\s*(\\d+)`));
+  if (numMatch) return Number(numMatch[1]);
+  return fallback;
+};
+
+const VOICE_PREF_KEYS = {
+  enabled: "interview.voice.enabled",
+  voiceUri: "interview.voice.uri",
+  rate: "interview.voice.rate",
+  pitch: "interview.voice.pitch",
+} as const;
+
+export default function InterviewChatPage() {
+  const { sessionId } = useParams<{ sessionId: string }>();
+  const { user, loading } = useAuth();
+  const router = useRouter();
+  const [session, setSession] = useState<InterviewSession | null>(null);
+  const [answer, setAnswer] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [remaining, setRemaining] = useState(0);
+  const [timerReady, setTimerReady] = useState(false);
+  const [geminiApiKey, setGeminiApiKey] = useState("");
+  const [speakOutput, setSpeakOutput] = useState(true);
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState("");
+  const [voiceRate, setVoiceRate] = useState(0.9);
+  const [voicePitch, setVoicePitch] = useState(0.95);
+  const [isListening, setIsListening] = useState(false);
+  const [isEvaluating, setIsEvaluating] = useState(false);
+
+  const evaluatingRef = useRef(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const lastSpokenAtRef = useRef<number>(0);
+  const dictatedPrefixRef = useRef("");
+  const chatBoxRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!loading && !user) router.replace("/login");
+  }, [loading, user, router]);
+
+  const refresh = async () => {
+    const data = await getInterviewSession(sessionId);
+    if (!data || (user && data.studentUsername !== user.username)) {
+      router.replace("/interviews");
+      return;
+    }
+    setSession(data);
+  };
+
+  useEffect(() => {
+    if (!sessionId || !user) return;
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sessionId, user]);
+
+  useEffect(() => {
+    if (!session) return;
+    setTimerReady(false);
+    const tick = () => {
+      const end = session.startTime + session.durationMinutes * 60 * 1000;
+      const left = Math.max(0, Math.floor((end - Date.now()) / 1000));
+      setRemaining(left);
+      setTimerReady(true);
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [session]);
+
+  useEffect(() => {
+    const SpeechRecognitionApi =
+      (window as Window & { SpeechRecognition?: SpeechRecognitionConstructor }).SpeechRecognition ||
+      (window as Window & { webkitSpeechRecognition?: SpeechRecognitionConstructor }).webkitSpeechRecognition;
+
+    if (!SpeechRecognitionApi) {
+      recognitionRef.current = null;
+      return;
+    }
+
+    const recognition = new SpeechRecognitionApi();
+    recognition.lang = "en-US";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    recognition.onstart = () => {
+      dictatedPrefixRef.current = answer.trim();
+      setIsListening(true);
+    };
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => {
+      setIsListening(false);
+      setError("Mic input failed. Check browser mic permission and try again.");
+    };
+    recognition.onresult = (event: SpeechRecognitionResultEventLike) => {
+      let finalText = "";
+      let interimText = "";
+      for (let i = 0; i < event.results.length; i++) {
+        const result = event.results[i];
+        const chunk = `${result[0].transcript || ""}`.trim();
+        if (!chunk) continue;
+        if (result.isFinal) finalText += `${chunk} `;
+        else interimText += `${chunk} `;
+      }
+      const full = [dictatedPrefixRef.current, finalText.trim(), interimText.trim()]
+        .filter(Boolean)
+        .join(" ")
+        .trim();
+      setAnswer(full);
+    };
+
+    recognitionRef.current = recognition;
+    return () => recognition.stop();
+  }, [answer]);
+
+  useEffect(() => {
+    const storedEnabled = window.localStorage.getItem(VOICE_PREF_KEYS.enabled);
+    const storedUri = window.localStorage.getItem(VOICE_PREF_KEYS.voiceUri);
+    const storedRate = window.localStorage.getItem(VOICE_PREF_KEYS.rate);
+    const storedPitch = window.localStorage.getItem(VOICE_PREF_KEYS.pitch);
+
+    if (storedEnabled !== null) setSpeakOutput(storedEnabled === "true");
+    if (storedUri) setSelectedVoiceURI(storedUri);
+    if (storedRate) {
+      const parsedRate = Number(storedRate);
+      if (!Number.isNaN(parsedRate)) setVoiceRate(parsedRate);
+    }
+    if (storedPitch) {
+      const parsedPitch = Number(storedPitch);
+      if (!Number.isNaN(parsedPitch)) setVoicePitch(parsedPitch);
+    }
+
+    if (!("speechSynthesis" in window)) return;
+    const loadVoices = () => {
+      const all = window.speechSynthesis.getVoices();
+      const english = all.filter((v) => /^en[-_]/i.test(v.lang));
+      const finalVoices = english.length ? english : all;
+      setVoices(finalVoices);
+      if (!storedUri && finalVoices.length > 0) {
+        setSelectedVoiceURI(finalVoices[0].voiceURI);
+      }
+    };
+    loadVoices();
+    window.speechSynthesis.onvoiceschanged = loadVoices;
+    return () => {
+      window.speechSynthesis.onvoiceschanged = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!session || !speakOutput) return;
+    const aiMessages = session.messages.filter((m) => m.sender === "AI");
+    const latest = aiMessages[aiMessages.length - 1];
+    if (!latest) return;
+    if (latest.createdAt <= lastSpokenAtRef.current) return;
+
+    if ("speechSynthesis" in window) {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(latest.messageText);
+      utterance.rate = voiceRate;
+      utterance.pitch = voicePitch;
+      utterance.lang = "en-US";
+      const picked = voices.find((v) => v.voiceURI === selectedVoiceURI);
+      if (picked) utterance.voice = picked;
+      window.speechSynthesis.speak(utterance);
+      lastSpokenAtRef.current = latest.createdAt;
+    }
+  }, [session, selectedVoiceURI, speakOutput, voicePitch, voiceRate, voices]);
+
+  useEffect(() => {
+    const box = chatBoxRef.current;
+    if (!box) return;
+    box.scrollTop = box.scrollHeight;
+  }, [session?.messages, answer, busy]);
+
+  useEffect(() => {
+    if (!error) return;
+    notify.error(error);
+  }, [error]);
+
+  const locked = session?.status !== "ACTIVE";
+
+  const doEvaluate = async () => {
+    if (!session) return;
+    if (evaluatingRef.current) return;
+    evaluatingRef.current = true;
+    setIsEvaluating(true);
+    const conversation = session.messages.map((m) => `${m.sender}: ${m.messageText}`).join("\n");
+    try {
+      const evalResp = await callGemini<{ raw: string }>("evaluate", {
+        conversation: [
+          `Role: ${session.roleName}`,
+          `Topics: ${session.topics}`,
+          `Evaluation Criteria: ${session.evaluationCriteria}`,
+          "Conversation:",
+          conversation,
+        ].join("\n"),
+        apiKey: geminiApiKey.trim(),
+      });
+      const raw = evalResp.raw;
+
+      await saveInterviewResult({
+        sessionId: session.id!,
+        technical: Number(parseJsonField(raw, "technical_knowledge", 60)),
+        communication: Number(parseJsonField(raw, "communication_clarity", 60)),
+        relevance: Number(parseJsonField(raw, "answer_relevance", 60)),
+        confidence: Number(parseJsonField(raw, "confidence", 60)),
+        overall: Number(parseJsonField(raw, "overall_score", 60)),
+        strengths: String(parseJsonField(raw, "strengths", "Problem solving, fundamentals")),
+        weaknesses: String(parseJsonField(raw, "weaknesses", "Depth and clarity can improve")),
+        suggestions: String(parseJsonField(raw, "suggestions", "Practice structured responses")),
+        feedback: String(parseJsonField(raw, "final_feedback", "Good attempt. Continue practice.")),
+        createdAt: Date.now(),
+      });
+
+      await completeInterviewSession(session.id!);
+      router.push(`/interviews/result/${session.id}`);
+    } catch (e) {
+      evaluatingRef.current = false;
+      setIsEvaluating(false);
+      setError(e instanceof Error ? e.message : "Failed to evaluate interview.");
+    }
+  };
+
+  useEffect(() => {
+    if (!session || remaining !== 0 || locked) return;
+    if (!timerReady) return;
+    doEvaluate();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remaining, session, locked, timerReady]);
+
+  const onSend = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!session || !answer.trim()) return;
+
+    setBusy(true);
+    setError("");
+    const text = answer.trim();
+    setAnswer("");
+
+    try {
+      const currentQ = session.currentQuestionNo;
+      const totalQ = session.totalQuestions;
+      const done = currentQ >= totalQ;
+
+      let next = "Thanks. We have completed all questions. Click Finish & Evaluate to view your report.";
+      if (!done) {
+        const interview = await getInterview(session.interviewId);
+        if (!interview) throw new Error("Interview configuration not found.");
+        if (interview.customQuestions.length > 0) {
+          next =
+            interview.customQuestions[currentQ] ||
+            "Please explain your approach in detail with one practical example.";
+        } else {
+          const context = [
+            `Interview: ${session.interviewTitle}`,
+            `Role: ${session.roleName}`,
+            `Topics: ${session.topics}`,
+            `Difficulty: ${session.difficulty}`,
+            `Question Flow: ${interview.questionFlow}`,
+            `Follow-up Logic: ${interview.followupLogic}`,
+            "Conversation:",
+            ...session.messages.map((m) => `${m.sender}: ${m.messageText}`),
+            `STUDENT: ${text}`,
+          ].join("\n");
+          next = (
+            await callGemini<{ question: string }>("next_question", {
+              context,
+              currentQuestionNo: currentQ,
+              totalQuestions: totalQ,
+              apiKey: geminiApiKey.trim(),
+            })
+          ).question;
+        }
+      }
+
+      await processInterviewAnswer(session.id!, text, next, done);
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to process answer.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleMic = () => {
+    const recognition = recognitionRef.current;
+    if (!recognition) {
+      setError("Mic is not supported in this browser.");
+      return;
+    }
+    if (isListening) recognition.stop();
+    else recognition.start();
+  };
+
+  if (!session || !user) return null;
+
+  return (
+    <main className="min-h-screen px-4 py-8">
+      <AppBackground />
+      <div className="mx-auto max-w-6xl">
+        <TopNav
+          actions={[{ href: "/interviews", label: "Back" }]}
+          subtitle={`${session.roleName} - ${session.difficulty} - ${session.interviewType}`}
+          title={session.interviewTitle}
+        />
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-[1fr_320px]">
+          <Panel>
+            <div className="h-[60vh] space-y-3 overflow-y-auto pr-2" id="chatBox" ref={chatBoxRef}>
+              {session.messages.map((m, idx) => {
+                const isStudent = m.sender === "STUDENT";
+                return (
+                  <div
+                    className={isStudent ? "text-right" : "text-left"}
+                    key={`${idx}-${m.createdAt}`}
+                  >
+                    <div
+                      className={`inline-block max-w-[85%] rounded-xl border px-3 py-2 ${isStudent ? "border-cyan-300/30 bg-cyan-500/20" : "border-emerald-300/30 bg-emerald-500/20"}`}
+                    >
+                      <p
+                        className={`text-[10px] uppercase tracking-[0.2em] ${isStudent ? "text-cyan-200" : "text-emerald-200"}`}
+                      >
+                        {isStudent ? "You" : "Interviewer"}
+                      </p>
+                      <p className="whitespace-pre-wrap text-sm">{m.messageText}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {!locked ? (
+              <form className="mt-4" onSubmit={onSend}>
+                <div className="flex gap-2">
+                  <textarea
+                    className="min-h-[88px] flex-1 rounded-xl border border-white/20 bg-slate-900/70 px-3 py-2 outline-none focus:border-cyan-300"
+                    disabled={busy || isEvaluating}
+                    onChange={(e) => setAnswer(e.target.value)}
+                    placeholder="Type your answer..."
+                    required
+                    value={answer}
+                  />
+                  <div className="flex flex-col gap-2">
+                    <button
+                      className={`rounded-xl border px-3 py-2 ${isListening ? "border-cyan-300 bg-cyan-500/20 text-cyan-100" : "border-cyan-300/40 text-cyan-200 hover:bg-cyan-400/15"}`}
+                      disabled={busy || isEvaluating}
+                      onClick={toggleMic}
+                      type="button"
+                    >
+                      {isListening ? "Listening..." : "Mic"}
+                    </button>
+                    <button
+                      className="rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 px-4 py-2 font-semibold text-slate-900 disabled:opacity-70"
+                      disabled={busy || isEvaluating}
+                    >
+                      {busy ? "Sending..." : "Send"}
+                    </button>
+                  </div>
+                </div>
+                {busy ? (
+                  <div className="mt-2 flex items-center gap-2 text-sm text-cyan-200">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-200/30 border-t-cyan-300" />
+                    Interviewer is thinking...
+                  </div>
+                ) : null}
+              </form>
+            ) : null}
+          </Panel>
+
+          <Panel className="h-fit lg:sticky lg:top-6">
+            <h2 className="font-display text-xl">Interview Status</h2>
+            <p className="mt-2 text-sm text-slate-300">Progress</p>
+            <div className="mt-1 h-2 w-full rounded bg-slate-800">
+              <div
+                className="h-2 rounded bg-gradient-to-r from-cyan-400 to-emerald-400"
+                style={{
+                  width: `${Math.min(100, Math.round((session.currentQuestionNo / session.totalQuestions) * 100))}%`,
+                }}
+              />
+            </div>
+            <p className="mt-2 text-sm">
+              {session.currentQuestionNo} / {session.totalQuestions} questions
+            </p>
+            <p className="mt-4 text-sm text-slate-300">Time Left</p>
+            <p className="font-display text-3xl text-cyan-300">
+              {String(Math.floor(remaining / 60)).padStart(2, "0")}:
+              {String(remaining % 60).padStart(2, "0")}
+            </p>
+
+            <label className="mt-5 block text-xs uppercase tracking-[0.2em] text-indigo-200">
+              Gemini Key Override
+            </label>
+            <input
+              className="mt-2 w-full rounded-lg border border-white/20 bg-slate-900/70 px-3 py-2"
+              onChange={(e) => setGeminiApiKey(e.target.value)}
+              placeholder="Optional API key"
+              type="password"
+              value={geminiApiKey}
+            />
+
+            <label className="mt-4 flex items-center gap-2 text-sm text-slate-200">
+              <input
+                checked={speakOutput}
+                className="accent-emerald-400"
+                onChange={(e) => setSpeakOutput(e.target.checked)}
+                type="checkbox"
+              />
+              Interviewer voice output
+            </label>
+
+            {locked ? (
+              <button
+                className="mt-4 w-full rounded-xl bg-emerald-500/80 py-2 hover:bg-emerald-500 disabled:opacity-70"
+                disabled={isEvaluating}
+                onClick={doEvaluate}
+                type="button"
+              >
+                {isEvaluating ? "Evaluating..." : "Finish and Evaluate"}
+              </button>
+            ) : null}
+          </Panel>
+        </div>
+      </div>
+
+      {isEvaluating ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/80 px-4">
+          <div className="w-full max-w-md rounded-2xl border border-cyan-300/30 bg-slate-900 p-6 text-center">
+            <div className="mx-auto flex w-fit items-center gap-3">
+              <span className="h-6 w-6 animate-spin rounded-full border-2 border-cyan-200/30 border-t-cyan-300" />
+              <span className="h-6 w-6 animate-spin rounded-full bg-[conic-gradient(from_0deg,#22d3ee,#34d399,#22d3ee)] opacity-80" />
+            </div>
+            <p className="mt-4 font-display text-xl text-cyan-100">Evaluating Interview...</p>
+            <p className="mt-2 text-sm text-slate-300">Generating your feedback report. Please wait.</p>
+          </div>
+        </div>
+      ) : null}
+    </main>
+  );
+}
