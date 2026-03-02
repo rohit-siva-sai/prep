@@ -27,6 +27,7 @@ type AuthContextType = {
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const BOOT_TIMEOUT_MS = 12000;
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<SessionUser | null>(null);
@@ -45,20 +46,49 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   useEffect(() => {
+    let active = true;
+
+    const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, message: string) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race<T>([
+          promise,
+          new Promise<T>((_, reject) => {
+            timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+          }),
+        ]);
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    };
+
     const bootstrap = async () => {
       try {
-        await ensureAnonymousAuth();
-        await ensureSeedData();
+        await withTimeout(
+          (async () => {
+            await ensureAnonymousAuth();
+            await ensureSeedData();
+          })(),
+          BOOT_TIMEOUT_MS,
+          "App initialization timed out. Check Firebase Auth/Firestore setup and Vercel env variables.",
+        );
+        if (!active) return;
         setBootError(null);
       } catch (error) {
+        if (!active) return;
         setBootError(friendlyError(error, "App initialization failed."));
       } finally {
+        if (!active) return;
         const existing = getSessionUser();
         setUser(existing);
         setLoading(false);
       }
     };
     bootstrap();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   const login = useCallback(async (usernameRaw: string, password: string) => {
