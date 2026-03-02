@@ -9,7 +9,7 @@ import {
   SessionUser,
 } from "@/lib/auth";
 import { createUser, ensureSeedData, getUserByUsername } from "@/lib/data-service";
-import { ensureAnonymousAuth } from "@/lib/firebase";
+import { ensureAnonymousAuth, firebaseReady } from "@/lib/firebase";
 
 type SignupInput = {
   fullName: string;
@@ -66,7 +66,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       try {
         await withTimeout(
           (async () => {
-            await ensureAnonymousAuth();
+            if (firebaseReady) {
+              await ensureAnonymousAuth();
+            }
             await ensureSeedData();
           })(),
           BOOT_TIMEOUT_MS,
