@@ -35,6 +35,53 @@ type SpeechRecognitionLike = {
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
+const normalizeQuestionText = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+const isNearDuplicateQuestion = (candidate: string, previousQuestions: string[]) => {
+  const current = normalizeQuestionText(candidate);
+  if (!current) return false;
+  const currentWords = new Set(current.split(" ").filter(Boolean));
+  if (!currentWords.size) return false;
+
+  return previousQuestions.some((q) => {
+    const prev = normalizeQuestionText(q);
+    if (!prev) return false;
+    if (prev === current) return true;
+
+    const prevWords = new Set(prev.split(" ").filter(Boolean));
+    if (!prevWords.size) return false;
+
+    let overlap = 0;
+    for (const word of currentWords) {
+      if (prevWords.has(word)) overlap += 1;
+    }
+    return overlap / Math.max(currentWords.size, prevWords.size) >= 0.72;
+  });
+};
+
+const parseTopics = (topicsRaw: string) =>
+  topicsRaw
+    .split(/[,|/]/g)
+    .map((t) => t.trim())
+    .filter(Boolean);
+
+const pickTargetTopic = (topics: string[], previousQuestions: string[], currentQuestionNo: number) => {
+  if (!topics.length) return "";
+  const normalizedHistory = previousQuestions.map(normalizeQuestionText);
+  const remaining = topics.filter((topic) => {
+    const topicWords = normalizeQuestionText(topic);
+    if (!topicWords) return true;
+    return !normalizedHistory.some((q) => q.includes(topicWords));
+  });
+  if (remaining.length > 0) return remaining[0];
+  return topics[currentQuestionNo % topics.length] || topics[0];
+};
+
 const parseJsonField = (raw: string, key: string, fallback: string | number) => {
   const textMatch = raw.match(new RegExp(`"${key}"\\s*:\\s*"([^"]*)"`));
   if (textMatch) return textMatch[1];
@@ -282,13 +329,21 @@ export default function InterviewChatPage() {
       const currentQ = session.currentQuestionNo;
       const totalQ = session.totalQuestions;
       const done = currentQ >= totalQ;
+      const askedQuestions = session.messages
+        .filter((m) => m.sender === "AI" && m.messageType === "QUESTION")
+        .map((m) => m.messageText);
 
       let next = "Thanks. We have completed all questions. Click Finish & Evaluate to view your report.";
       if (!done) {
         const interview = await getInterview(session.interviewId);
         if (!interview) throw new Error("Interview configuration not found.");
+        const topics = parseTopics(session.topics);
+        const targetTopic = pickTargetTopic(topics, askedQuestions, currentQ);
+
         if (interview.customQuestions.length > 0) {
+          const upcoming = interview.customQuestions.slice(currentQ);
           next =
+            upcoming.find((q) => !isNearDuplicateQuestion(q, askedQuestions)) ||
             interview.customQuestions[currentQ] ||
             "Please explain your approach in detail with one practical example.";
         } else {
@@ -296,21 +351,49 @@ export default function InterviewChatPage() {
             `Interview: ${session.interviewTitle}`,
             `Role: ${session.roleName}`,
             `Topics: ${session.topics}`,
+            `Target Topic For This Question: ${targetTopic || session.roleName}`,
             `Difficulty: ${session.difficulty}`,
             `Question Flow: ${interview.questionFlow}`,
             `Follow-up Logic: ${interview.followupLogic}`,
+            "Rule: Ask one fresh question and move to a new topic if the previous answer was already provided.",
+            "Do not repeat or rephrase any earlier question.",
             "Conversation:",
             ...session.messages.map((m) => `${m.sender}: ${m.messageText}`),
             `STUDENT: ${text}`,
           ].join("\n");
-          next = (
+
+          const firstTry = (
             await callGemini<{ question: string }>("next_question", {
               context,
               currentQuestionNo: currentQ,
               totalQuestions: totalQ,
+              previousQuestions: askedQuestions,
               apiKey: geminiApiKey.trim(),
             })
           ).question;
+
+          if (isNearDuplicateQuestion(firstTry, askedQuestions)) {
+            const retryContext = [
+              context,
+              "Retry rule: The prior generated question repeated an already covered topic.",
+              `You must ask a distinctly new question on: ${targetTopic || session.roleName}.`,
+            ].join("\n");
+            const retried = (
+              await callGemini<{ question: string }>("next_question", {
+                context: retryContext,
+                currentQuestionNo: currentQ,
+                totalQuestions: totalQ,
+                previousQuestions: askedQuestions,
+                apiKey: geminiApiKey.trim(),
+              })
+            ).question;
+
+            next = isNearDuplicateQuestion(retried, askedQuestions)
+              ? `Let's move to ${targetTopic || "the next topic"}. Can you explain your approach with one concrete example?`
+              : retried;
+          } else {
+            next = firstTry;
+          }
         }
       }
 

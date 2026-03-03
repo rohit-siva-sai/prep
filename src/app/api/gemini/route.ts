@@ -110,7 +110,26 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "next_question") {
-      const prompt = `You are continuing an interview. Ask exactly one next question only.\nQuestion number ${(payload.currentQuestionNo as number) + 1} of ${payload.totalQuestions}.\nContext:\n${payload.context}`;
+      const previousQuestions = Array.isArray(payload.previousQuestions)
+        ? payload.previousQuestions
+            .map((q) => String(q || "").trim())
+            .filter(Boolean)
+            .slice(-12)
+        : [];
+      const prompt = [
+        "You are continuing an interview.",
+        "Ask exactly one next question only.",
+        `Question number ${(payload.currentQuestionNo as number) + 1} of ${payload.totalQuestions}.`,
+        "Hard rules:",
+        "- Do not repeat or rephrase any previously asked question.",
+        "- If a topic was already answered, move to the next topic.",
+        "- Keep the question concise and specific.",
+        previousQuestions.length
+          ? `Previously asked questions:\n${previousQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}`
+          : "Previously asked questions: none",
+        "Context:",
+        String(payload.context || ""),
+      ].join("\n");
       try {
         const question = await callGemini(
           prompt,
