@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
 import { TopNav } from "@/components/layout/top-nav";
 import { AppBackground, Panel } from "@/components/ui/primitives";
 import { useAuth } from "@/contexts/auth-context";
@@ -15,25 +16,6 @@ import {
 import { callGemini } from "@/lib/gemini-client";
 import { notify } from "@/lib/toast";
 import { InterviewSession } from "@/types/models";
-
-type SpeechRecognitionResultEventLike = {
-  resultIndex: number;
-  results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal?: boolean }>;
-};
-
-type SpeechRecognitionLike = {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  onstart: (() => void) | null;
-  onend: (() => void) | null;
-  onerror: (() => void) | null;
-  onresult: ((event: SpeechRecognitionResultEventLike) => void) | null;
-  start: () => void;
-  stop: () => void;
-};
-
-type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 
 const normalizeQuestionText = (value: string) =>
   value
@@ -113,13 +95,18 @@ export default function InterviewChatPage() {
   const [selectedVoiceURI, setSelectedVoiceURI] = useState("");
   const [voiceRate, setVoiceRate] = useState(0.9);
   const [voicePitch, setVoicePitch] = useState(0.95);
-  const [isListening, setIsListening] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
+  const {
+    transcript,
+    listening: micListening,
+    resetTranscript,
+    browserSupportsSpeechRecognition,
+    isMicrophoneAvailable,
+  } = useSpeechRecognition();
 
   const evaluatingRef = useRef(false);
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const lastSpokenAtRef = useRef<number>(0);
-  const dictatedPrefixRef = useRef("");
+  const dictationBaseRef = useRef("");
   const chatBoxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -156,49 +143,24 @@ export default function InterviewChatPage() {
   }, [session]);
 
   useEffect(() => {
-    const SpeechRecognitionApi =
-      (window as Window & { SpeechRecognition?: SpeechRecognitionConstructor }).SpeechRecognition ||
-      (window as Window & { webkitSpeechRecognition?: SpeechRecognitionConstructor }).webkitSpeechRecognition;
+    if (!micListening && !transcript) return;
+    const dictated = transcript.trim();
+    const full = [dictationBaseRef.current, dictated].filter(Boolean).join(" ").trim();
+    setAnswer(full);
+  }, [transcript, micListening]);
 
-    if (!SpeechRecognitionApi) {
-      recognitionRef.current = null;
+  useEffect(() => {
+    return () => {
+      void SpeechRecognition.stopListening();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (busy || isEvaluating || session?.status !== "ACTIVE") {
+      if (micListening) void SpeechRecognition.stopListening();
       return;
     }
-
-    const recognition = new SpeechRecognitionApi();
-    recognition.lang = "en-US";
-    recognition.interimResults = true;
-    recognition.continuous = false;
-
-    recognition.onstart = () => {
-      dictatedPrefixRef.current = answer.trim();
-      setIsListening(true);
-    };
-    recognition.onend = () => setIsListening(false);
-    recognition.onerror = () => {
-      setIsListening(false);
-      setError("Mic input failed. Check browser mic permission and try again.");
-    };
-    recognition.onresult = (event: SpeechRecognitionResultEventLike) => {
-      let finalText = "";
-      let interimText = "";
-      for (let i = 0; i < event.results.length; i++) {
-        const result = event.results[i];
-        const chunk = `${result[0].transcript || ""}`.trim();
-        if (!chunk) continue;
-        if (result.isFinal) finalText += `${chunk} `;
-        else interimText += `${chunk} `;
-      }
-      const full = [dictatedPrefixRef.current, finalText.trim(), interimText.trim()]
-        .filter(Boolean)
-        .join(" ")
-        .trim();
-      setAnswer(full);
-    };
-
-    recognitionRef.current = recognition;
-    return () => recognition.stop();
-  }, [answer]);
+  }, [busy, isEvaluating, micListening, session?.status]);
 
   useEffect(() => {
     const storedEnabled = window.localStorage.getItem(VOICE_PREF_KEYS.enabled);
@@ -320,6 +282,12 @@ export default function InterviewChatPage() {
     event.preventDefault();
     if (!session || !answer.trim()) return;
 
+    if (micListening) {
+      await SpeechRecognition.stopListening();
+    }
+    resetTranscript();
+    dictationBaseRef.current = "";
+
     setBusy(true);
     setError("");
     const text = answer.trim();
@@ -406,14 +374,31 @@ export default function InterviewChatPage() {
     }
   };
 
-  const toggleMic = () => {
-    const recognition = recognitionRef.current;
-    if (!recognition) {
+  const toggleMic = async () => {
+    if (!browserSupportsSpeechRecognition) {
       setError("Mic is not supported in this browser.");
       return;
     }
-    if (isListening) recognition.stop();
-    else recognition.start();
+    if (!isMicrophoneAvailable) {
+      setError("Microphone permission is blocked. Allow mic access and try again.");
+      return;
+    }
+    if (micListening) {
+      await SpeechRecognition.stopListening();
+      return;
+    }
+    dictationBaseRef.current = answer.trim();
+    resetTranscript();
+    setError("");
+    try {
+      await SpeechRecognition.startListening({
+        continuous: true,
+        interimResults: true,
+        language: "en-US",
+      });
+    } catch {
+      setError("Mic could not start. Please try again.");
+    }
   };
 
   if (!session || !user) return null;
@@ -466,12 +451,12 @@ export default function InterviewChatPage() {
                   />
                   <div className="flex flex-col gap-2">
                     <button
-                      className={`rounded-xl border px-3 py-2 ${isListening ? "border-cyan-300 bg-cyan-500/20 text-cyan-100" : "border-cyan-300/40 text-cyan-200 hover:bg-cyan-400/15"}`}
+                      className={`rounded-xl border px-3 py-2 ${micListening ? "border-cyan-300 bg-cyan-500/20 text-cyan-100" : "border-cyan-300/40 text-cyan-200 hover:bg-cyan-400/15"}`}
                       disabled={busy || isEvaluating}
                       onClick={toggleMic}
                       type="button"
                     >
-                      {isListening ? "Listening..." : "Mic"}
+                      {micListening ? "Listening..." : "Mic"}
                     </button>
                     <button
                       className="rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 px-4 py-2 font-semibold text-slate-900 disabled:opacity-70"
