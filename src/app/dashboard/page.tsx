@@ -28,11 +28,11 @@ export default function DashboardPage() {
               ...(user.role === "admin"
                 ? [
                     { href: "/admin/exams", label: "Exam Admin" },
-                    { href: "/admin/interviews", label: "Interview Admin" },
+                   
                   ]
                 : []),
               { href: "/tracks", label: "Exam Tracks" },
-              { href: "/interviews", label: "AI Interview" },
+             
               { href: "/history", label: "Result Stream" },
               { href: "/logout", label: "Logout", danger: true },
             ]}
