@@ -66,7 +66,7 @@ export default function HistoryPage() {
           title="Result Stream"
         />
 
-        <Panel className="mt-5 p-0">
+        {/* <Panel className="mt-5 p-0">
           <div className="border-b border-white/10 bg-slate-900/40 px-4 py-3">
             <h2 className="font-display text-xl">Interview Results</h2>
           </div>
@@ -113,7 +113,7 @@ export default function HistoryPage() {
               </tbody>
             </table>
           </div>
-        </Panel>
+        </Panel> */}
 
         <Panel className="mt-6 p-0">
           <div className="border-b border-white/10 bg-slate-900/40 px-4 py-3">
