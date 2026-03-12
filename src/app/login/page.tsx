@@ -57,8 +57,8 @@ export default function LoginPage() {
       <AppBackground />
       <div className="mx-auto grid max-w-6xl items-center gap-8 md:grid-cols-2">
         <section>
-          <p className="text-xs uppercase tracking-[0.35em] text-emerald-300">Exam Grid 2050</p>
-          <h1 className="mt-3 font-display text-4xl leading-tight md:text-6xl">Neural Assessment Portal</h1>
+          <p className="text-xs uppercase tracking-[0.35em] text-emerald-300">Exam Grid</p>
+          <h1 className="mt-3 font-display text-4xl leading-tight md:text-6xl">Assessment Portal</h1>
           <p className="mt-4 max-w-lg text-slate-300">
             Multi-track certification exams with timed execution, instant scoring, and performance analytics.
           </p>
@@ -67,10 +67,10 @@ export default function LoginPage() {
               <p className="text-xs text-cyan-200">Tracks</p>
               <p className="text-2xl font-semibold">{tracks}</p>
             </div>
-            <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-4">
+            {/* <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-4">
               <p className="text-xs text-emerald-200">Questions</p>
               <p className="text-2xl font-semibold">{questions}</p>
-            </div>
+            </div> */}
             <div className="rounded-xl border border-blue-400/30 bg-blue-500/10 px-3 py-4">
               <p className="text-xs text-blue-200">Mode</p>
               <p className="text-2xl font-semibold">Live</p>
