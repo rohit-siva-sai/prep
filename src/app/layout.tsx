@@ -16,7 +16,7 @@ const body = Space_Grotesk({
 });
 
 export const metadata: Metadata = {
-  title: "Exam Grid 2050 | Next + Firebase",
+  title: "Exam Grid",
   description: "Migrated exam and interview platform",
 };
 
