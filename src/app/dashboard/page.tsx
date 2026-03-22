@@ -28,7 +28,7 @@ export default function DashboardPage() {
               ...(user.role === "admin"
                 ? [
                     { href: "/admin/exams", label: "Exam Admin" },
-                   
+                    { href: "/admin/performance", label: "Student Performance" },
                   ]
                 : []),
               { href: "/tracks", label: "Exam Tracks" },

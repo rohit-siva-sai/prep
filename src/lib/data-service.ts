@@ -43,7 +43,7 @@ type LocalDb = {
 
 const LOCAL_DB_KEY = "exam-grid-local-db-v1";
 const canUseLocalStorage = () => typeof window !== "undefined";
-const useFirebase = () => Boolean(firebaseReady && db);
+const shouldUseFirebase = () => Boolean(firebaseReady && db);
 
 const mustDb = () => {
   if (!db || !firebaseReady) throw new Error("Firebase is unavailable.");
@@ -100,7 +100,7 @@ const sessionsRef = () => collection(mustDb(), "interviewSessions");
 const resultsRef = () => collection(mustDb(), "interviewResults");
 
 export const ensureSeedData = async () => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const database = mustDb();
     const adminSnap = await getDoc(doc(database, "users", ADMIN_USERNAME));
     if (!adminSnap.exists()) {
@@ -139,7 +139,7 @@ export const ensureSeedData = async () => {
 
 export const getUserByUsername = async (username: string) => {
   const key = username.toLowerCase();
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const snap = await getDoc(doc(mustDb(), "users", key));
     if (!snap.exists()) return null;
     return snap.data() as UserProfile;
@@ -150,7 +150,7 @@ export const getUserByUsername = async (username: string) => {
 
 export const createUser = async (user: UserProfile) => {
   const key = user.username.toLowerCase();
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     await setDoc(doc(mustDb(), "users", key), user);
     return;
   }
@@ -160,7 +160,7 @@ export const createUser = async (user: UserProfile) => {
 };
 
 export const listTests = async () => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const snap = await getDocs(query(testsRef(), orderBy("name")));
     return snap.docs
       .map((d) => d.data() as ExamTest & { archived?: boolean })
@@ -175,7 +175,7 @@ export const listTests = async () => {
 };
 
 export const getTest = async (id: string) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const snap = await getDoc(doc(mustDb(), "tests", id));
     if (!snap.exists()) return null;
     const data = snap.data() as ExamTest & { archived?: boolean };
@@ -186,7 +186,7 @@ export const getTest = async (id: string) => {
 };
 
 export const saveTest = async (test: ExamTest) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     await setDoc(doc(mustDb(), "tests", test.id), test);
     return;
   }
@@ -196,7 +196,7 @@ export const saveTest = async (test: ExamTest) => {
 };
 
 export const deleteTest = async (testId: string) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const ref = doc(mustDb(), "tests", testId);
     try {
       await deleteDoc(ref);
@@ -212,7 +212,7 @@ export const deleteTest = async (testId: string) => {
 };
 
 export const addAttempt = async (attempt: Omit<ExamAttempt, "id">) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const ref = await addDoc(attemptsRef(), attempt);
     return ref.id;
   }
@@ -224,7 +224,7 @@ export const addAttempt = async (attempt: Omit<ExamAttempt, "id">) => {
 };
 
 export const getAttempt = async (attemptId: string) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const snap = await getDoc(doc(mustDb(), "attempts", attemptId));
     if (!snap.exists()) return null;
     return { id: snap.id, ...(snap.data() as Omit<ExamAttempt, "id">) } as ExamAttempt;
@@ -234,7 +234,7 @@ export const getAttempt = async (attemptId: string) => {
 };
 
 export const listAttemptsByUser = async (username: string) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const snap = await getDocs(query(attemptsRef(), orderBy("endTs", "desc")));
     return snap.docs
       .map((d) => ({ id: d.id, ...(d.data() as Omit<ExamAttempt, "id">) }) as ExamAttempt)
@@ -246,8 +246,20 @@ export const listAttemptsByUser = async (username: string) => {
     .sort((a, b) => b.endTs - a.endTs);
 };
 
+export const listAllAttempts = async () => {
+  if (shouldUseFirebase()) {
+    const snap = await getDocs(query(attemptsRef(), orderBy("endTs", "desc")));
+    return snap.docs.map(
+      (d) => ({ id: d.id, ...(d.data() as Omit<ExamAttempt, "id">) }) as ExamAttempt,
+    );
+  }
+  return Object.entries(readLocalDb().attempts)
+    .map(([id, data]) => ({ id, ...data }) as ExamAttempt)
+    .sort((a, b) => b.endTs - a.endTs);
+};
+
 export const listUsers = async () => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const snap = await getDocs(query(usersRef(), orderBy("createdAt", "asc")));
     return snap.docs.map((d) => d.data() as UserProfile);
   }
@@ -255,7 +267,7 @@ export const listUsers = async () => {
 };
 
 export const listInterviews = async () => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const snap = await getDocs(query(interviewsRef(), orderBy("createdAt", "desc")));
     return snap.docs
       .map((d) => ({ id: d.id, ...(d.data() as Omit<Interview, "id"> & { archived?: boolean }) }))
@@ -269,7 +281,7 @@ export const listInterviews = async () => {
 };
 
 export const getInterview = async (id: string) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const snap = await getDoc(doc(mustDb(), "interviews", id));
     if (!snap.exists()) return null;
     const data = snap.data() as Omit<Interview, "id"> & { archived?: boolean };
@@ -281,7 +293,7 @@ export const getInterview = async (id: string) => {
 };
 
 export const createInterview = async (interview: Omit<Interview, "id" | "createdAt">) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const ref = await addDoc(interviewsRef(), {
       ...interview,
       createdAt: Date.now(),
@@ -296,7 +308,7 @@ export const createInterview = async (interview: Omit<Interview, "id" | "created
 };
 
 export const deleteInterview = async (interviewId: string) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const ref = doc(mustDb(), "interviews", interviewId);
     try {
       await deleteDoc(ref);
@@ -312,7 +324,7 @@ export const deleteInterview = async (interviewId: string) => {
 };
 
 export const listInterviewSessionsByUser = async (username: string) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const snap = await getDocs(query(sessionsRef(), orderBy("startTime", "desc")));
     return snap.docs
       .map((d) => ({ id: d.id, ...(d.data() as Omit<InterviewSession, "id">) }) as InterviewSession)
@@ -329,7 +341,7 @@ export const createInterviewSession = async (
   intro: string,
   firstQuestion: string,
 ) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const ref = await addDoc(sessionsRef(), {
       ...payload,
       status: "ACTIVE",
@@ -360,7 +372,7 @@ export const createInterviewSession = async (
 };
 
 export const getInterviewSession = async (sessionId: string) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const snap = await getDoc(doc(mustDb(), "interviewSessions", sessionId));
     if (!snap.exists()) return null;
     return { id: snap.id, ...(snap.data() as Omit<InterviewSession, "id">) } as InterviewSession;
@@ -375,7 +387,7 @@ export const processInterviewAnswer = async (
   nextQuestion: string,
   done: boolean,
 ) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const ref = doc(mustDb(), "interviewSessions", sessionId);
     await runTransaction(mustDb(), async (tx) => {
       const snap = await tx.get(ref);
@@ -423,7 +435,7 @@ export const processInterviewAnswer = async (
 };
 
 export const completeInterviewSession = async (sessionId: string) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     await updateDoc(doc(mustDb(), "interviewSessions", sessionId), {
       status: "COMPLETED",
       endTime: Date.now(),
@@ -439,7 +451,7 @@ export const completeInterviewSession = async (sessionId: string) => {
 };
 
 export const saveInterviewResult = async (result: InterviewResult) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     await setDoc(doc(mustDb(), "interviewResults", result.sessionId), result);
     return;
   }
@@ -449,7 +461,7 @@ export const saveInterviewResult = async (result: InterviewResult) => {
 };
 
 export const getInterviewResult = async (sessionId: string) => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const snap = await getDoc(doc(mustDb(), "interviewResults", sessionId));
     return snap.exists() ? (snap.data() as InterviewResult) : null;
   }
@@ -463,7 +475,7 @@ export const listInterviewResultsByUser = async (username: string) => {
 };
 
 export const listAllInterviewSessions = async () => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const snap = await getDocs(query(sessionsRef(), orderBy("startTime", "desc")));
     return snap.docs.map(
       (d) => ({ id: d.id, ...(d.data() as Omit<InterviewSession, "id">) }) as InterviewSession,
@@ -475,7 +487,7 @@ export const listAllInterviewSessions = async () => {
 };
 
 export const listAllInterviewResults = async () => {
-  if (useFirebase()) {
+  if (shouldUseFirebase()) {
     const snap = await getDocs(query(resultsRef(), orderBy("createdAt", "desc")));
     return snap.docs.map((d) => d.data() as InterviewResult);
   }

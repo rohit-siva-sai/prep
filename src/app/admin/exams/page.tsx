@@ -341,7 +341,8 @@ export default function AdminExamsPage() {
       <div className="mx-auto max-w-7xl">
         <TopNav
           actions={[
-            // { href: "/admin/interviews", label: "Interview Admin" },
+            { href: "/admin/interviews", label: "Interview Admin" },
+            { href: "/admin/performance", label: "Student Performance" },
             { href: "/dashboard", label: "Dashboard" },
           ]}
           subtitle="Administrator"
