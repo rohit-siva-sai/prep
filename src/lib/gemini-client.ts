@@ -3,7 +3,8 @@ export type GeminiAction =
   | "intro"
   | "next_question"
   | "evaluate"
-  | "generate_exam_questions";
+  | "generate_exam_questions"
+  | "refine_transcript";
 
 export const callGemini = async <T>(action: GeminiAction, payload: Record<string, unknown>) => {
   const response = await fetch("/api/gemini", {

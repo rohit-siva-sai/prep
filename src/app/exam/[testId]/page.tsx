@@ -257,21 +257,29 @@ export default function ExamPage() {
                 {answeredCount} / {test.questions.length} answered
               </p>
               <div className="mt-4 grid grid-cols-5 gap-2">
-                {test.questions.map((_, i) => (
-                  <button
-                    className="rounded-lg border border-white/20 py-1 text-sm hover:bg-cyan-300/20"
-                    key={i}
-                    onClick={() =>
-                      document.getElementById(`card-${i + 1}`)?.scrollIntoView({
-                        behavior: "smooth",
-                        block: "start",
-                      })
-                    }
-                    type="button"
-                  >
-                    {i + 1}
-                  </button>
-                ))}
+                {test.questions.map((question, i) => {
+                  const attempted = answers[question.id] !== undefined;
+                  return (
+                    <button
+                      aria-label={`Question ${i + 1}${attempted ? " (attempted)" : ""}`}
+                      className={`rounded-lg border py-1 text-sm transition-colors ${
+                        attempted
+                          ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-100 hover:bg-emerald-400/25"
+                          : "border-white/20 text-slate-200 hover:bg-cyan-300/20"
+                      }`}
+                      key={question.id}
+                      onClick={() =>
+                        document.getElementById(`card-${i + 1}`)?.scrollIntoView({
+                          behavior: "smooth",
+                          block: "start",
+                        })
+                      }
+                      type="button"
+                    >
+                      {i + 1}
+                    </button>
+                  );
+                })}
               </div>
             </Panel>
           </div>

@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { AppBackground } from "@/components/ui/primitives";
 import { useAuth } from "@/contexts/auth-context";
 import { FirebaseNotice } from "@/components/ui/firebase-notice";
-import { listTests } from "@/lib/data-service";
+import { listInterviews, listTests } from "@/lib/data-service";
 import { notify } from "@/lib/toast";
 
 export default function LoginPage() {
@@ -15,8 +15,8 @@ export default function LoginPage() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const [tracks, setTracks] = useState(0);
-  const [questions, setQuestions] = useState(0);
+  const [onlineExams, setOnlineExams] = useState(0);
+  const [liveInterviews, setLiveInterviews] = useState(0);
 
   useEffect(() => {
     if (!loading && user) router.replace("/dashboard");
@@ -25,12 +25,12 @@ export default function LoginPage() {
   useEffect(() => {
     const loadMeta = async () => {
       try {
-        const tests = await listTests();
-        setTracks(tests.length);
-        setQuestions(tests.reduce((sum, t) => sum + t.questions.length, 0));
+        const [tests, interviews] = await Promise.all([listTests(), listInterviews()]);
+        setOnlineExams(tests.length);
+        setLiveInterviews(interviews.length);
       } catch {
-        setTracks(0);
-        setQuestions(0);
+        setOnlineExams(0);
+        setLiveInterviews(0);
       }
     };
     loadMeta();
@@ -64,13 +64,13 @@ export default function LoginPage() {
           </p>
           <div className="mt-8 grid max-w-lg grid-cols-3 gap-3">
             <div className="rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-3 py-4">
-              <p className="text-xs text-cyan-200">Tracks</p>
-              <p className="text-2xl font-semibold">{tracks}</p>
+              <p className="text-xs text-cyan-200">No. of Online Exams</p>
+              <p className="text-2xl font-semibold">{onlineExams}</p>
             </div>
-            {/* <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-4">
-              <p className="text-xs text-emerald-200">Questions</p>
-              <p className="text-2xl font-semibold">{questions}</p>
-            </div> */}
+            <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-3 py-4">
+              <p className="text-xs text-emerald-200">No. of Live Interviews</p>
+              <p className="text-2xl font-semibold">{liveInterviews}</p>
+            </div>
             <div className="rounded-xl border border-blue-400/30 bg-blue-500/10 px-3 py-4">
               <p className="text-xs text-blue-200">Mode</p>
               <p className="text-2xl font-semibold">Live</p>

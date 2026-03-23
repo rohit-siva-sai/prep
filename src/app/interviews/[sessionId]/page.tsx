@@ -97,16 +97,20 @@ export default function InterviewChatPage() {
   const [voicePitch, setVoicePitch] = useState(0.95);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const {
-    transcript,
+    finalTranscript,
+    interimTranscript,
     listening: micListening,
     resetTranscript,
     browserSupportsSpeechRecognition,
     isMicrophoneAvailable,
-  } = useSpeechRecognition();
+  } = useSpeechRecognition({ clearTranscriptOnListen: false });
 
   const evaluatingRef = useRef(false);
   const lastSpokenAtRef = useRef<number>(0);
   const dictationBaseRef = useRef("");
+  const lastDictatedRef = useRef("");
+  const shouldKeepListeningRef = useRef(false);
+  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chatBoxRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -143,24 +147,54 @@ export default function InterviewChatPage() {
   }, [session]);
 
   useEffect(() => {
-    if (!micListening && !transcript) return;
-    const dictated = transcript.trim();
-    const full = [dictationBaseRef.current, dictated].filter(Boolean).join(" ").trim();
+    const liveDictated = [finalTranscript, interimTranscript].filter(Boolean).join(" ").trim();
+    if (liveDictated.length >= lastDictatedRef.current.length) {
+      lastDictatedRef.current = liveDictated;
+    }
+    const stableDictated = liveDictated || lastDictatedRef.current;
+    if (!micListening && !stableDictated) return;
+    const full = [dictationBaseRef.current, stableDictated].filter(Boolean).join(" ").trim();
     setAnswer(full);
-  }, [transcript, micListening]);
+  }, [finalTranscript, interimTranscript, micListening]);
 
   useEffect(() => {
     return () => {
+      shouldKeepListeningRef.current = false;
+      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
       void SpeechRecognition.stopListening();
     };
   }, []);
 
   useEffect(() => {
     if (busy || isEvaluating || session?.status !== "ACTIVE") {
+      shouldKeepListeningRef.current = false;
       if (micListening) void SpeechRecognition.stopListening();
       return;
     }
   }, [busy, isEvaluating, micListening, session?.status]);
+
+  useEffect(() => {
+    if (!shouldKeepListeningRef.current) return;
+    if (busy || isEvaluating || session?.status !== "ACTIVE") return;
+    if (micListening) return;
+    if (!browserSupportsSpeechRecognition || !isMicrophoneAvailable) return;
+
+    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
+    restartTimerRef.current = setTimeout(() => {
+      void SpeechRecognition.startListening({
+        continuous: true,
+        interimResults: true,
+        language: "en-IN",
+      });
+    }, 250);
+  }, [
+    micListening,
+    busy,
+    isEvaluating,
+    session?.status,
+    browserSupportsSpeechRecognition,
+    isMicrophoneAvailable,
+  ]);
 
   useEffect(() => {
     const storedEnabled = window.localStorage.getItem(VOICE_PREF_KEYS.enabled);
@@ -285,7 +319,9 @@ export default function InterviewChatPage() {
     if (micListening) {
       await SpeechRecognition.stopListening();
     }
+    shouldKeepListeningRef.current = false;
     resetTranscript();
+    lastDictatedRef.current = "";
     dictationBaseRef.current = "";
 
     setBusy(true);
@@ -384,17 +420,20 @@ export default function InterviewChatPage() {
       return;
     }
     if (micListening) {
+      shouldKeepListeningRef.current = false;
       await SpeechRecognition.stopListening();
       return;
     }
+    shouldKeepListeningRef.current = true;
     dictationBaseRef.current = answer.trim();
+    lastDictatedRef.current = "";
     resetTranscript();
     setError("");
     try {
       await SpeechRecognition.startListening({
         continuous: true,
         interimResults: true,
-        language: "en-US",
+        language: "en-IN",
       });
     } catch {
       setError("Mic could not start. Please try again.");

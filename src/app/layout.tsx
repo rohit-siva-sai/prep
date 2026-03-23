@@ -17,7 +17,13 @@ const body = Space_Grotesk({
 
 export const metadata: Metadata = {
   title: "Exam Grid",
-  description: "Migrated exam and interview platform",
+  description: "Online exams and AI interviews with instant scoring and analytics.",
+  icons: {
+    icon: [
+      { url: "/icon.svg", type: "image/svg+xml" },
+    ],
+    shortcut: ["/favicon.ico"],
+  },
 };
 
 export default function RootLayout({

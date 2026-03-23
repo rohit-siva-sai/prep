@@ -6,7 +6,8 @@ type Body = {
     | "intro"
     | "next_question"
     | "evaluate"
-    | "generate_exam_questions";
+    | "generate_exam_questions"
+    | "refine_transcript";
   payload: Record<string, unknown>;
 };
 
@@ -202,6 +203,37 @@ Level: ${payload.level}`;
         modelOverride,
       );
       return NextResponse.json({ ok: true, data: { text } });
+    }
+
+    if (action === "refine_transcript") {
+      const input = String(payload.text || "").trim();
+      if (!input) return NextResponse.json({ ok: true, data: { text: "" } });
+
+      const context = String(payload.context || "").trim();
+      const prompt = [
+        "You are correcting speech-to-text transcription errors.",
+        "Return only corrected text.",
+        "Hard rules:",
+        "- Preserve original meaning exactly.",
+        "- Do not summarize.",
+        "- Do not add new facts.",
+        "- Fix spelling, word choice, punctuation, and obvious homophone errors.",
+        "- Keep technical terms accurate (example: candidate key, functional dependency, transitive dependency, BCNF, 3NF).",
+        context ? `Context:\n${context}` : "Context: none",
+        `Input:\n${input}`,
+      ].join("\n");
+
+      try {
+        const text = await callGemini(
+          prompt,
+          undefined,
+          apiKeyOverride,
+          modelOverride,
+        );
+        return NextResponse.json({ ok: true, data: { text } });
+      } catch {
+        return NextResponse.json({ ok: true, data: { text: input } });
+      }
     }
 
     return NextResponse.json({ ok: false, error: "Unknown action." }, { status: 400 });
