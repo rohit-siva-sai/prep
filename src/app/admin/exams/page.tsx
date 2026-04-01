@@ -6,7 +6,7 @@ import { AppBackground, Panel } from "@/components/ui/primitives";
 import { TopNav } from "@/components/layout/top-nav";
 import { useAuth } from "@/contexts/auth-context";
 import { FiTrash2 } from "react-icons/fi";
-import { deleteTest, listTests, repairAllTestQuestionTopics, saveTest } from "@/lib/data-service";
+import { deleteTest, listTests, saveTest } from "@/lib/data-service";
 import { confirmToast, notify } from "@/lib/toast";
 import { ExamTest, Question } from "@/types/models";
 
@@ -121,7 +121,6 @@ export default function AdminExamsPage() {
   const [showKeyPopup, setShowKeyPopup] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
-  const [isRepairingTopics, setIsRepairingTopics] = useState(false);
   const [deletingTestId, setDeletingTestId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -347,28 +346,6 @@ export default function AdminExamsPage() {
     }
   };
 
-  const onRepairTopics = async () => {
-    if (isRepairingTopics) return;
-    const confirmed = await confirmToast(
-      "Repair question topics for all tests?",
-      "This will normalize and rewrite topic labels for every saved test question.",
-    );
-    if (!confirmed) return;
-
-    setIsRepairingTopics(true);
-    setErr("");
-    setMsg("");
-    try {
-      const repairedCount = await repairAllTestQuestionTopics();
-      await refresh();
-      setMsg(`Repaired question topics for ${repairedCount} tests.`);
-    } catch (error) {
-      setErr(error instanceof Error ? error.message : "Failed to repair test topics.");
-    } finally {
-      setIsRepairingTopics(false);
-    }
-  };
-
   if (!user || user.role !== "admin") return null;
 
   return (
@@ -387,26 +364,6 @@ export default function AdminExamsPage() {
           subtitle="Administrator"
           title="Test Control Panel"
         />
-
-        <Panel className="mt-6 border-amber-300/25 bg-amber-500/10">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-amber-200">Maintenance</p>
-              <h2 className="mt-2 font-display text-2xl">Repair All Test Question Topics</h2>
-              <p className="mt-2 max-w-3xl text-sm text-slate-200">
-                Use this once to normalize topic labels for every saved test so analytics and improvement summaries use the real exam topics.
-              </p>
-            </div>
-            <button
-              className="rounded-xl bg-gradient-to-r from-amber-300 to-cyan-400 px-5 py-3 font-semibold text-slate-900 disabled:opacity-70"
-              disabled={isRepairingTopics}
-              onClick={onRepairTopics}
-              type="button"
-            >
-              {isRepairingTopics ? "Repairing..." : "Repair All Topics"}
-            </button>
-          </div>
-        </Panel>
 
         <Panel className="mt-6 border-cyan-300/25 bg-cyan-500/10">
           <h2 className="font-display text-2xl">AI Test Generator (ChatGPT)</h2>
