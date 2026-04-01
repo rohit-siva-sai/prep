@@ -5,11 +5,17 @@ import { useParams, useRouter } from "next/navigation";
 import { AppBackground, Panel } from "@/components/ui/primitives";
 import { useAuth } from "@/contexts/auth-context";
 import { addAttempt, getTest } from "@/lib/data-service";
+import { normalizeTopicLabel, summarizeAttemptWeakTopics } from "@/lib/exam-topics";
 import { ExamTest } from "@/types/models";
 
 type RuntimeState = {
   startTs: number;
   attemptId: string;
+};
+
+type SubmittedSummary = {
+  attemptId: string;
+  weakTopics: Array<{ topic: string; accuracy: number; total: number }>;
 };
 
 const keyFor = (testId: string) => `exam-runtime-${testId}`;
@@ -25,6 +31,7 @@ export default function ExamPage() {
   const [timerReady, setTimerReady] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittedSummary, setSubmittedSummary] = useState<SubmittedSummary | null>(null);
   const submittingRef = useRef(false);
 
   useEffect(() => {
@@ -106,6 +113,7 @@ export default function ExamPage() {
       const isCorrect = selected === question.answer;
       return {
         qid: question.id,
+        topic: normalizeTopicLabel(question.topic, question.text, test.name),
         question: question.text,
         options: question.options,
         selected,
@@ -137,7 +145,11 @@ export default function ExamPage() {
     });
 
     window.sessionStorage.removeItem(keyFor(test.id));
-    router.replace(`/result/${attemptId}`);
+    setSubmittedSummary({
+      attemptId,
+      weakTopics: summarizeAttemptWeakTopics(review, test.name),
+    });
+    setIsSubmitting(false);
   };
 
   if (!test || !user) return null;
@@ -208,6 +220,9 @@ export default function ExamPage() {
                 {test.questions.map((question, index) => (
                   <article className="rounded-2xl border border-white/15 bg-slate-900/45 p-4" id={`card-${index + 1}`} key={question.id}>
                     <p className="text-xs uppercase tracking-[0.2em] text-cyan-200">Question {index + 1}</p>
+                    <p className="mt-1 text-xs uppercase tracking-[0.16em] text-emerald-200">
+                      {normalizeTopicLabel(question.topic, question.text, test.name)}
+                    </p>
                     <p className="mt-1 text-lg font-medium">{question.text}</p>
                     <div className="mt-3 grid gap-2">
                       {question.options.map((option, optIndex) => (
@@ -290,6 +305,47 @@ export default function ExamPage() {
           <div className="w-full max-w-sm rounded-2xl border border-emerald-300/30 bg-slate-900 p-5 text-center">
             <span className="mx-auto block h-8 w-8 animate-spin rounded-full border-2 border-emerald-200/30 border-t-emerald-300" />
             <p className="mt-3 text-emerald-100">Calculating your result...</p>
+          </div>
+        </div>
+      ) : null}
+      {submittedSummary ? (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-950/80 px-4">
+          <div className="w-full max-w-2xl rounded-3xl border border-amber-300/30 bg-slate-900 p-6 shadow-2xl shadow-slate-950/50">
+            <p className="text-xs uppercase tracking-[0.24em] text-amber-200">Submission Summary</p>
+            <h2 className="mt-2 font-display text-3xl">Topics To Improve</h2>
+            <p className="mt-2 text-sm text-slate-300">
+              This quick summary is based only on the test you just submitted.
+            </p>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              {submittedSummary.weakTopics.length === 0 ? (
+                <div className="rounded-2xl border border-emerald-300/25 bg-emerald-500/10 px-4 py-3 text-emerald-100">
+                  No weak topics detected in this attempt.
+                </div>
+              ) : (
+                submittedSummary.weakTopics.map((entry) => (
+                  <div
+                    className="rounded-2xl border border-amber-300/25 bg-amber-500/10 px-4 py-3"
+                    key={`${entry.topic}-${entry.total}`}
+                  >
+                    <p className="font-semibold text-amber-100">{entry.topic}</p>
+                    <p className="mt-1 text-xs uppercase tracking-[0.16em] text-amber-200">
+                      Accuracy {(entry.accuracy * 100).toFixed(0)}%
+                    </p>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div className="mt-6 flex justify-end">
+              <button
+                className="rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 px-5 py-3 font-semibold text-slate-900 hover:brightness-110"
+                onClick={() => router.replace(`/result/${submittedSummary.attemptId}`)}
+                type="button"
+              >
+                Open Full Result
+              </button>
+            </div>
           </div>
         </div>
       ) : null}

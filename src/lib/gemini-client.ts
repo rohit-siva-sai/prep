@@ -4,6 +4,8 @@ export type GeminiAction =
   | "next_question"
   | "evaluate"
   | "generate_exam_questions"
+  | "generate_coding_track"
+  | "evaluate_code_submission"
   | "refine_transcript";
 
 export const callGemini = async <T>(action: GeminiAction, payload: Record<string, unknown>) => {

@@ -1,0 +1,16 @@
+{
+  "student_id": "demo_student",
+  "student_name": "Demo Student",
+  "analysis_mode": "combined",
+  "test_data": [
+    {"subject": "Foundations Assessment", "topic": "Arrays", "score": 4, "total_marks": 10, "date": "2026-03-20"},
+    {"subject": "Foundations Assessment", "topic": "SQL", "score": 7, "total_marks": 10, "date": "2026-03-20"},
+    {"subject": "Cyber Operations Drill", "topic": "Security", "score": 5, "total_marks": 10, "date": "2026-03-21"},
+    {"subject": "AI Systems Readiness", "topic": "Machine Learning", "score": 6, "total_marks": 10, "date": "2026-03-22"},
+    {"subject": "AI Systems Readiness", "topic": "NLP", "score": 8, "total_marks": 10, "date": "2026-03-22"}
+  ],
+  "interview_feedback": [
+    {"text": "The candidate showed good technical understanding but communication was slightly rushed and confidence dropped during cross questions."},
+    {"text": "Need better articulation, stronger confidence, and more structured answers when discussing problem solving."}
+  ]
+}

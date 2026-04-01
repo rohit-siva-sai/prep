@@ -87,6 +87,29 @@ export default function InterviewResultPage() {
           </ul>
         </Panel>
 
+        <section className="mt-6 grid gap-4 md:grid-cols-2">
+          <Panel className="border-amber-300/25 bg-amber-500/10">
+            <h3 className="font-display text-lg">Topics To Improve</h3>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-200">
+              {splitPoints(result.improvementTopics || "").length > 0 ? (
+                splitPoints(result.improvementTopics || "").map((point) => <li key={point}>{point}</li>)
+              ) : (
+                <li>Interview topics needing improvement were not captured for this result.</li>
+              )}
+            </ul>
+          </Panel>
+          <Panel className="border-indigo-300/25 bg-indigo-500/10">
+            <h3 className="font-display text-lg">Subjects To Improve</h3>
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-200">
+              {splitPoints(result.improvementSubjects || "").length > 0 ? (
+                splitPoints(result.improvementSubjects || "").map((point) => <li key={point}>{point}</li>)
+              ) : (
+                <li>Subject-level improvement areas were not captured for this result.</li>
+              )}
+            </ul>
+          </Panel>
+        </section>
+
         <section className="mt-6 grid gap-4 md:grid-cols-3">
           <Panel className="border-emerald-300/25 bg-emerald-500/10"><h3 className="font-display text-lg">Strengths</h3><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-200">{splitPoints(result.strengths).map((p) => <li key={p}>{p}</li>)}</ul></Panel>
           <Panel className="border-red-300/25 bg-red-500/10"><h3 className="font-display text-lg">Weaknesses</h3><ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-200">{splitPoints(result.weaknesses).map((p) => <li key={p}>{p}</li>)}</ul></Panel>

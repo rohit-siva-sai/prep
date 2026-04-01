@@ -10,6 +10,7 @@ export type UserProfile = {
 
 export type Question = {
   id: string;
+  topic?: string;
   text: string;
   options: string[];
   answer: number;
@@ -26,6 +27,7 @@ export type ExamTest = {
 
 export type AttemptReview = {
   qid: string;
+  topic?: string;
   question: string;
   options: string[];
   selected: number;
@@ -107,5 +109,62 @@ export type InterviewResult = {
   weaknesses: string;
   suggestions: string;
   feedback: string;
+  improvementTopics?: string;
+  improvementSubjects?: string;
   createdAt: number;
+};
+
+export type CodingTrack = {
+  id?: string;
+  title: string;
+  roleName: string;
+  topics: string;
+  difficulty: string;
+  durationMinutes: number;
+  language: string;
+  prompt: string;
+  starterCode: string;
+  functionName: string;
+  sampleTests: Array<{
+    id: string;
+    input: string;
+    expected: string;
+  }>;
+  evaluationCriteria: string;
+  expectedSignals: string;
+  createdBy: string;
+  createdAt: number;
+};
+
+export type CodingAttempt = {
+  id?: string;
+  trackId: string;
+  trackTitle: string;
+  roleName: string;
+  topics: string;
+  difficulty: string;
+  language: string;
+  prompt: string;
+  studentUsername: string;
+  studentName: string;
+  code: string;
+  explanation: string;
+  score: number;
+  strengths: string;
+  weaknesses: string;
+  suggestions: string;
+  evaluationSummary: string;
+  testRunSummary?: string;
+  passedSampleTests?: number;
+  totalSampleTests?: number;
+  sampleTestResults?: Array<{
+    id: string;
+    passed: boolean;
+    actualOutput: string;
+    expectedOutput: string;
+    error?: string;
+  }>;
+  status: "COMPLETED";
+  startedAt: number;
+  submittedAt: number;
 };

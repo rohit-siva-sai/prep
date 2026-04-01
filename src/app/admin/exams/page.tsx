@@ -6,7 +6,7 @@ import { AppBackground, Panel } from "@/components/ui/primitives";
 import { TopNav } from "@/components/layout/top-nav";
 import { useAuth } from "@/contexts/auth-context";
 import { FiTrash2 } from "react-icons/fi";
-import { deleteTest, listTests, saveTest } from "@/lib/data-service";
+import { deleteTest, listTests, repairAllTestQuestionTopics, saveTest } from "@/lib/data-service";
 import { confirmToast, notify } from "@/lib/toast";
 import { ExamTest, Question } from "@/types/models";
 
@@ -26,9 +26,18 @@ const parseAiPayload = (payload: string) => {
     else if (line.startsWith("PASS_PERCENT:")) test.passPercent = Number(line.replace("PASS_PERCENT:", "").trim());
     else if (line.startsWith("Q\t")) {
       const p = line.split("\t");
-      if (p.length >= 8) {
+      if (p.length >= 9) {
         questions.push({
           id: p[1].trim().toUpperCase(),
+          topic: p[2].trim() || "General",
+          text: p[3].trim(),
+          options: [p[4].trim(), p[5].trim(), p[6].trim(), p[7].trim()],
+          answer: Number(p[8]),
+        });
+      } else if (p.length >= 8) {
+        questions.push({
+          id: p[1].trim().toUpperCase(),
+          topic: "General",
           text: p[2].trim(),
           options: [p[3].trim(), p[4].trim(), p[5].trim(), p[6].trim()],
           answer: Number(p[7]),
@@ -78,6 +87,7 @@ export default function AdminExamsPage() {
   const [addQ, setAddQ] = useState({
     testId: "",
     qid: "",
+    topic: "",
     qtext: "",
     o1: "",
     o2: "",
@@ -111,6 +121,7 @@ export default function AdminExamsPage() {
   const [showKeyPopup, setShowKeyPopup] = useState(false);
   const [keyInput, setKeyInput] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isRepairingTopics, setIsRepairingTopics] = useState(false);
   const [deletingTestId, setDeletingTestId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -210,6 +221,7 @@ export default function AdminExamsPage() {
 
     const question: Question = {
       id: addQ.qid.trim().toUpperCase(),
+      topic: addQ.topic.trim(),
       text: addQ.qtext.trim(),
       options: [addQ.o1.trim(), addQ.o2.trim(), addQ.o3.trim(), addQ.o4.trim()],
       answer: Number(addQ.answer),
@@ -217,6 +229,7 @@ export default function AdminExamsPage() {
 
     if (
       !question.id ||
+      !question.topic ||
       !question.text ||
       question.options.some((o) => !o) ||
       question.answer < 0 ||
@@ -228,7 +241,7 @@ export default function AdminExamsPage() {
     await saveTest({ ...test, questions: [...test.questions, question] });
     setMsg(`Question added to ${test.id}`);
     setErr("");
-    setAddQ({ testId: "", qid: "", qtext: "", o1: "", o2: "", o3: "", o4: "", answer: 0 });
+    setAddQ({ testId: "", qid: "", topic: "", qtext: "", o1: "", o2: "", o3: "", o4: "", answer: 0 });
     refresh();
   };
 
@@ -259,7 +272,8 @@ export default function AdminExamsPage() {
         `TAGLINE: ${promptTagline || "<short tagline>"}`,
         "DURATION_MIN: <integer>",
         "PASS_PERCENT: <number 1-100>",
-        "Q\t<QUESTION_ID>\t<QUESTION_TEXT>\t<OPTION1>\t<OPTION2>\t<OPTION3>\t<OPTION4>\t<CORRECT_OPTION_INDEX_0_TO_3>",
+        "Each question must include a specific topic label.",
+        "Q\t<QUESTION_ID>\t<TOPIC>\t<QUESTION_TEXT>\t<OPTION1>\t<OPTION2>\t<OPTION3>\t<OPTION4>\t<CORRECT_OPTION_INDEX_0_TO_3>",
       ].join("\n"),
     );
   };
@@ -333,6 +347,28 @@ export default function AdminExamsPage() {
     }
   };
 
+  const onRepairTopics = async () => {
+    if (isRepairingTopics) return;
+    const confirmed = await confirmToast(
+      "Repair question topics for all tests?",
+      "This will normalize and rewrite topic labels for every saved test question.",
+    );
+    if (!confirmed) return;
+
+    setIsRepairingTopics(true);
+    setErr("");
+    setMsg("");
+    try {
+      const repairedCount = await repairAllTestQuestionTopics();
+      await refresh();
+      setMsg(`Repaired question topics for ${repairedCount} tests.`);
+    } catch (error) {
+      setErr(error instanceof Error ? error.message : "Failed to repair test topics.");
+    } finally {
+      setIsRepairingTopics(false);
+    }
+  };
+
   if (!user || user.role !== "admin") return null;
 
   return (
@@ -342,12 +378,35 @@ export default function AdminExamsPage() {
         <TopNav
           actions={[
             { href: "/admin/interviews", label: "Interview Admin" },
+            { href: "/admin/coding", label: "Coding Admin" },
             { href: "/admin/performance", label: "Student Performance" },
+            { href: "/performance-enhancement", label: "Predictor Hub" },
+            { href: "/interview-predictor", label: "Interview Predictor" },
             { href: "/dashboard", label: "Dashboard" },
           ]}
           subtitle="Administrator"
           title="Test Control Panel"
         />
+
+        <Panel className="mt-6 border-amber-300/25 bg-amber-500/10">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs uppercase tracking-[0.22em] text-amber-200">Maintenance</p>
+              <h2 className="mt-2 font-display text-2xl">Repair All Test Question Topics</h2>
+              <p className="mt-2 max-w-3xl text-sm text-slate-200">
+                Use this once to normalize topic labels for every saved test so analytics and improvement summaries use the real exam topics.
+              </p>
+            </div>
+            <button
+              className="rounded-xl bg-gradient-to-r from-amber-300 to-cyan-400 px-5 py-3 font-semibold text-slate-900 disabled:opacity-70"
+              disabled={isRepairingTopics}
+              onClick={onRepairTopics}
+              type="button"
+            >
+              {isRepairingTopics ? "Repairing..." : "Repair All Topics"}
+            </button>
+          </div>
+        </Panel>
 
         <Panel className="mt-6 border-cyan-300/25 bg-cyan-500/10">
           <h2 className="font-display text-2xl">AI Test Generator (ChatGPT)</h2>
@@ -437,7 +496,7 @@ export default function AdminExamsPage() {
 
           <form className="mt-5 grid gap-3" onSubmit={importAi}>
             <label className="text-sm text-slate-300">Paste ChatGPT output in required format:</label>
-            <textarea className="w-full min-h-64 rounded-lg bg-slate-900/70 border border-white/20 px-3 py-2 font-mono text-xs" value={aiPayload} onChange={(e) => setAiPayload(e.target.value)} placeholder="TEST_ID: DS01\nTEST_NAME: Data Structures Core\nTAGLINE: Arrays, stacks, queues and trees\nDURATION_MIN: 20\nPASS_PERCENT: 60\nQ	DSQ1	What is amortized complexity of dynamic array append?	O(n)	O(1) average	O(log n)	O(n log n)	1" required />
+            <textarea className="w-full min-h-64 rounded-lg bg-slate-900/70 border border-white/20 px-3 py-2 font-mono text-xs" value={aiPayload} onChange={(e) => setAiPayload(e.target.value)} placeholder="TEST_ID: DS01\nTEST_NAME: Data Structures Core\nTAGLINE: Arrays, stacks, queues and trees\nDURATION_MIN: 20\nPASS_PERCENT: 60\nQ	DSQ1	Arrays	What is amortized complexity of dynamic array append?	O(n)	O(1) average	O(log n)	O(n log n)	1" required />
             <label className="inline-flex items-center gap-2 text-sm text-slate-300">
               <input className="accent-cyan-400" type="checkbox" checked={replaceImport} onChange={(e) => setReplaceImport(e.target.checked)} />
               Replace existing test if TEST_ID already exists
@@ -484,6 +543,7 @@ export default function AdminExamsPage() {
                 <input className="rounded-lg border border-white/20 bg-slate-900/70 px-3 py-2" placeholder="Target Test ID" value={addQ.testId} onChange={(e) => setAddQ((p) => ({ ...p, testId: e.target.value }))} required />
                 <input className="rounded-lg border border-white/20 bg-slate-900/70 px-3 py-2" placeholder="Question ID" value={addQ.qid} onChange={(e) => setAddQ((p) => ({ ...p, qid: e.target.value }))} required />
               </div>
+              <input className="rounded-lg border border-white/20 bg-slate-900/70 px-3 py-2" placeholder="Topic (example: Arrays, DBMS, OOP, Networking)" value={addQ.topic} onChange={(e) => setAddQ((p) => ({ ...p, topic: e.target.value }))} required />
               <textarea className="rounded-lg border border-white/20 bg-slate-900/70 px-3 py-2" placeholder="Question text" value={addQ.qtext} onChange={(e) => setAddQ((p) => ({ ...p, qtext: e.target.value }))} required />
               <div className="grid gap-3 sm:grid-cols-2">
                 <input className="rounded-lg border border-white/20 bg-slate-900/70 px-3 py-2" placeholder="Option 1" value={addQ.o1} onChange={(e) => setAddQ((p) => ({ ...p, o1: e.target.value }))} required />

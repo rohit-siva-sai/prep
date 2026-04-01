@@ -23,6 +23,6 @@ declare module "react-speech-recognition" {
   };
 
   const SpeechRecognition: SpeechRecognitionApi;
-  export const useSpeechRecognition: () => UseSpeechRecognitionResult;
+  export const useSpeechRecognition: (options?: { clearTranscriptOnListen?: boolean }) => UseSpeechRecognitionResult;
   export default SpeechRecognition;
 }

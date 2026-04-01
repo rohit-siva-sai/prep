@@ -1,0 +1,12 @@
+[
+  {"text":"The candidate explained concepts clearly and stayed confident while solving technical questions.","communication_score":88,"confidence_score":84,"technical_skill_score":86},
+  {"text":"Communication was weak, answers were vague, and confidence dropped during follow-up questions.","communication_score":35,"confidence_score":38,"technical_skill_score":44},
+  {"text":"Strong technical understanding but the delivery was rushed and slightly unclear.","communication_score":58,"confidence_score":64,"technical_skill_score":85},
+  {"text":"The student was polite and structured, but lacked depth in distributed systems and ML topics.","communication_score":81,"confidence_score":74,"technical_skill_score":52},
+  {"text":"Good confidence level, concise responses, and solid technical fundamentals across most answers.","communication_score":84,"confidence_score":88,"technical_skill_score":80},
+  {"text":"The response quality was inconsistent, communication needed clarity, and technical accuracy was low.","communication_score":42,"confidence_score":47,"technical_skill_score":39},
+  {"text":"Excellent communication, calm tone, and thoughtful examples demonstrated strong confidence.","communication_score":92,"confidence_score":90,"technical_skill_score":78},
+  {"text":"The student hesitated often, used filler words, and could not justify technical design choices.","communication_score":40,"confidence_score":32,"technical_skill_score":36},
+  {"text":"Average communication, reasonable technical answers, but confidence can improve under pressure.","communication_score":66,"confidence_score":58,"technical_skill_score":68},
+  {"text":"The interview performance was technically sound, though communication structure and confidence need work.","communication_score":55,"confidence_score":52,"technical_skill_score":79}
+]

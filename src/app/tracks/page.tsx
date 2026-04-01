@@ -74,6 +74,10 @@ export default function ExamTracksPage() {
           subtitle="Auto-submit enabled on timeout"
           actions={[
             ...(user.role === "admin" ? [{ href: "/admin/exams", label: "Exam Admin" }] : []),
+            { href: "/coding", label: "Coding Tracks" },
+            { href: "/interviews", label: "Interview Tracks" },
+            { href: "/exam-predictor", label: "Test Predictor" },
+            { href: "/interview-predictor", label: "Interview Predictor" },
             { href: "/dashboard", label: "Dashboard" },
           ]}
         />

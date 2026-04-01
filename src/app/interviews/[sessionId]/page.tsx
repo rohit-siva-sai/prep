@@ -2,7 +2,6 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import SpeechRecognition, { useSpeechRecognition } from "react-speech-recognition";
 import { TopNav } from "@/components/layout/top-nav";
 import { AppBackground, Panel } from "@/components/ui/primitives";
 import { useAuth } from "@/contexts/auth-context";
@@ -15,6 +14,7 @@ import {
 } from "@/lib/data-service";
 import { callGemini } from "@/lib/gemini-client";
 import { notify } from "@/lib/toast";
+import { transcribeAudio } from "@/lib/transcription-client";
 import { InterviewSession } from "@/types/models";
 
 const normalizeQuestionText = (value: string) =>
@@ -79,6 +79,25 @@ const VOICE_PREF_KEYS = {
   pitch: "interview.voice.pitch",
 } as const;
 
+const buildTranscriptContext = (session: InterviewSession | null) => {
+  if (!session) return "";
+
+  const lastAiQuestion =
+    [...session.messages]
+      .reverse()
+      .find((message) => message.sender === "AI" && message.messageType === "QUESTION")
+      ?.messageText || "";
+
+  return [
+    `Interview title: ${session.interviewTitle}`,
+    `Role: ${session.roleName}`,
+    `Topics: ${session.topics}`,
+    lastAiQuestion ? `Current question: ${lastAiQuestion}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+};
+
 export default function InterviewChatPage() {
   const { sessionId } = useParams<{ sessionId: string }>();
   const { user, loading } = useAuth();
@@ -96,22 +115,17 @@ export default function InterviewChatPage() {
   const [voiceRate, setVoiceRate] = useState(0.9);
   const [voicePitch, setVoicePitch] = useState(0.95);
   const [isEvaluating, setIsEvaluating] = useState(false);
-  const {
-    finalTranscript,
-    interimTranscript,
-    listening: micListening,
-    resetTranscript,
-    browserSupportsSpeechRecognition,
-    isMicrophoneAvailable,
-  } = useSpeechRecognition({ clearTranscriptOnListen: false });
+  const [micListening, setMicListening] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
 
   const evaluatingRef = useRef(false);
   const lastSpokenAtRef = useRef<number>(0);
-  const dictationBaseRef = useRef("");
-  const lastDictatedRef = useRef("");
-  const shouldKeepListeningRef = useRef(false);
-  const restartTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const chatBoxRef = useRef<HTMLDivElement | null>(null);
+  const answerRef = useRef("");
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordedChunksRef = useRef<Blob[]>([]);
+  const stopRecordingRef = useRef<(shouldTranscribe: boolean) => Promise<void>>(async () => undefined);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -147,54 +161,21 @@ export default function InterviewChatPage() {
   }, [session]);
 
   useEffect(() => {
-    const liveDictated = [finalTranscript, interimTranscript].filter(Boolean).join(" ").trim();
-    if (liveDictated.length >= lastDictatedRef.current.length) {
-      lastDictatedRef.current = liveDictated;
-    }
-    const stableDictated = liveDictated || lastDictatedRef.current;
-    if (!micListening && !stableDictated) return;
-    const full = [dictationBaseRef.current, stableDictated].filter(Boolean).join(" ").trim();
-    setAnswer(full);
-  }, [finalTranscript, interimTranscript, micListening]);
+    answerRef.current = answer;
+  }, [answer]);
 
   useEffect(() => {
     return () => {
-      shouldKeepListeningRef.current = false;
-      if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-      void SpeechRecognition.stopListening();
+      void stopRecordingRef.current(false);
     };
   }, []);
 
   useEffect(() => {
     if (busy || isEvaluating || session?.status !== "ACTIVE") {
-      shouldKeepListeningRef.current = false;
-      if (micListening) void SpeechRecognition.stopListening();
+      if (micListening) void stopRecordingRef.current(false);
       return;
     }
   }, [busy, isEvaluating, micListening, session?.status]);
-
-  useEffect(() => {
-    if (!shouldKeepListeningRef.current) return;
-    if (busy || isEvaluating || session?.status !== "ACTIVE") return;
-    if (micListening) return;
-    if (!browserSupportsSpeechRecognition || !isMicrophoneAvailable) return;
-
-    if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
-    restartTimerRef.current = setTimeout(() => {
-      void SpeechRecognition.startListening({
-        continuous: true,
-        interimResults: true,
-        language: "en-IN",
-      });
-    }, 250);
-  }, [
-    micListening,
-    busy,
-    isEvaluating,
-    session?.status,
-    browserSupportsSpeechRecognition,
-    isMicrophoneAvailable,
-  ]);
 
   useEffect(() => {
     const storedEnabled = window.localStorage.getItem(VOICE_PREF_KEYS.enabled);
@@ -262,6 +243,103 @@ export default function InterviewChatPage() {
   }, [error]);
 
   const locked = session?.status !== "ACTIVE";
+  const micSupported =
+    typeof navigator !== "undefined" &&
+    Boolean(navigator.mediaDevices?.getUserMedia) &&
+    typeof MediaRecorder !== "undefined";
+
+  const releaseRecorderResources = async () => {
+    mediaRecorderRef.current = null;
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+  };
+
+  const stopRecording = async (shouldTranscribe: boolean) => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== "inactive") {
+      await new Promise<void>((resolve) => {
+        recorder.onstop = () => resolve();
+        recorder.stop();
+      });
+    }
+    setMicListening(false);
+
+    const chunks = [...recordedChunksRef.current];
+    recordedChunksRef.current = [];
+    await releaseRecorderResources();
+
+    if (!shouldTranscribe || chunks.length === 0) return;
+
+    setIsTranscribing(true);
+    setError("");
+    try {
+      const audioBlob = new Blob(chunks, { type: chunks[0]?.type || "audio/webm" });
+      const rawTranscript = await transcribeAudio(audioBlob);
+      if (!rawTranscript) {
+        setError("No speech detected. Please try again.");
+        return;
+      }
+      const refinedTranscript = geminiApiKey.trim()
+        ? (
+            await callGemini<{ text: string }>("refine_transcript", {
+              text: rawTranscript,
+              context: buildTranscriptContext(session),
+              apiKey: geminiApiKey.trim(),
+            }).catch(() => ({ text: rawTranscript }))
+          ).text.trim()
+        : rawTranscript;
+      const nextAnswer = [answerRef.current.trim(), refinedTranscript || rawTranscript].filter(Boolean).join(" ");
+      answerRef.current = nextAnswer;
+      setAnswer(nextAnswer);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Audio transcription failed.");
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+  stopRecordingRef.current = stopRecording;
+
+  const startRecording = async () => {
+    if (!micSupported) {
+      setError("Microphone recording is not supported in this browser.");
+      return;
+    }
+
+    setError("");
+    recordedChunksRef.current = [];
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      });
+
+      const mimeType =
+        ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"]
+          .find((candidate) => MediaRecorder.isTypeSupported(candidate)) || "";
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) recordedChunksRef.current.push(event.data);
+      };
+      recorder.onerror = () => {
+        setError("Microphone recording failed. Please try again.");
+      };
+
+      mediaStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setMicListening(true);
+    } catch (e) {
+      await releaseRecorderResources();
+      setMicListening(false);
+      setError(e instanceof Error ? e.message : "Microphone permission is blocked. Allow mic access and try again.");
+    }
+  };
 
   const doEvaluate = async () => {
     if (!session) return;
@@ -293,6 +371,12 @@ export default function InterviewChatPage() {
         weaknesses: String(parseJsonField(raw, "weaknesses", "Depth and clarity can improve")),
         suggestions: String(parseJsonField(raw, "suggestions", "Practice structured responses")),
         feedback: String(parseJsonField(raw, "final_feedback", "Good attempt. Continue practice.")),
+        improvementTopics: String(
+          parseJsonField(raw, "improvement_topics", "Topics from this interview need deeper practice"),
+        ),
+        improvementSubjects: String(
+          parseJsonField(raw, "improvement_subjects", "Core subject understanding, communication"),
+        ),
         createdAt: Date.now(),
       });
 
@@ -314,19 +398,18 @@ export default function InterviewChatPage() {
 
   const onSend = async (event: FormEvent) => {
     event.preventDefault();
-    if (!session || !answer.trim()) return;
+    if (!session) return;
 
     if (micListening) {
-      await SpeechRecognition.stopListening();
+      await stopRecording(true);
     }
-    shouldKeepListeningRef.current = false;
-    resetTranscript();
-    lastDictatedRef.current = "";
-    dictationBaseRef.current = "";
+
+    const text = answerRef.current.trim();
+    if (!text) return;
 
     setBusy(true);
     setError("");
-    const text = answer.trim();
+    answerRef.current = "";
     setAnswer("");
 
     try {
@@ -411,33 +494,11 @@ export default function InterviewChatPage() {
   };
 
   const toggleMic = async () => {
-    if (!browserSupportsSpeechRecognition) {
-      setError("Mic is not supported in this browser.");
-      return;
-    }
-    if (!isMicrophoneAvailable) {
-      setError("Microphone permission is blocked. Allow mic access and try again.");
-      return;
-    }
     if (micListening) {
-      shouldKeepListeningRef.current = false;
-      await SpeechRecognition.stopListening();
+      await stopRecording(true);
       return;
     }
-    shouldKeepListeningRef.current = true;
-    dictationBaseRef.current = answer.trim();
-    lastDictatedRef.current = "";
-    resetTranscript();
-    setError("");
-    try {
-      await SpeechRecognition.startListening({
-        continuous: true,
-        interimResults: true,
-        language: "en-IN",
-      });
-    } catch {
-      setError("Mic could not start. Please try again.");
-    }
+    await startRecording();
   };
 
   if (!session || !user) return null;
@@ -482,7 +543,7 @@ export default function InterviewChatPage() {
                 <div className="flex gap-2">
                   <textarea
                     className="min-h-[88px] flex-1 rounded-xl border border-white/20 bg-slate-900/70 px-3 py-2 outline-none focus:border-cyan-300"
-                    disabled={busy || isEvaluating}
+                    disabled={busy || isEvaluating || isTranscribing}
                     onChange={(e) => setAnswer(e.target.value)}
                     placeholder="Type your answer..."
                     required
@@ -491,24 +552,38 @@ export default function InterviewChatPage() {
                   <div className="flex flex-col gap-2">
                     <button
                       className={`rounded-xl border px-3 py-2 ${micListening ? "border-cyan-300 bg-cyan-500/20 text-cyan-100" : "border-cyan-300/40 text-cyan-200 hover:bg-cyan-400/15"}`}
-                      disabled={busy || isEvaluating}
+                      disabled={busy || isEvaluating || isTranscribing}
                       onClick={toggleMic}
                       type="button"
                     >
-                      {micListening ? "Listening..." : "Mic"}
+                      {isTranscribing ? "Transcribing..." : micListening ? "Recording..." : "Mic"}
                     </button>
                     <button
                       className="rounded-xl bg-gradient-to-r from-cyan-400 to-emerald-400 px-4 py-2 font-semibold text-slate-900 disabled:opacity-70"
-                      disabled={busy || isEvaluating}
+                      disabled={busy || isEvaluating || isTranscribing}
                     >
                       {busy ? "Sending..." : "Send"}
                     </button>
                   </div>
                 </div>
+                {micSupported ? (
+                  <p className="mt-2 text-xs text-slate-400">
+                    Press Mic to record, then press it again to transcribe your answer with the Python Whisper service.
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs text-amber-300">
+                    This browser does not support microphone recording. You can still type your answer.
+                  </p>
+                )}
                 {busy ? (
                   <div className="mt-2 flex items-center gap-2 text-sm text-cyan-200">
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-200/30 border-t-cyan-300" />
                     Interviewer is thinking...
+                  </div>
+                ) : isTranscribing ? (
+                  <div className="mt-2 flex items-center gap-2 text-sm text-cyan-200">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-cyan-200/30 border-t-cyan-300" />
+                    Converting speech to text...
                   </div>
                 ) : null}
               </form>

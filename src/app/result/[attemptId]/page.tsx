@@ -5,6 +5,7 @@ import { useParams, useRouter } from "next/navigation";
 import { AppBackground, Panel, StatCard } from "@/components/ui/primitives";
 import { useAuth } from "@/contexts/auth-context";
 import { getAttempt } from "@/lib/data-service";
+import { summarizeAttemptWeakTopics } from "@/lib/exam-topics";
 import { ExamAttempt } from "@/types/models";
 import { formatDate, formatPercent } from "@/lib/utils";
 
@@ -32,6 +33,10 @@ export default function ResultPage() {
   }, [attemptId, user, router]);
 
   const gauge = useMemo(() => Math.round(attempt?.percent ?? 0), [attempt]);
+  const improvementTopics = useMemo(
+    () => (attempt ? summarizeAttemptWeakTopics(attempt.review, attempt.testName) : []),
+    [attempt],
+  );
 
   if (!attempt || !user) return null;
 
@@ -96,6 +101,29 @@ export default function ResultPage() {
           </Panel>
         </section>
 
+        <Panel className="mt-6 border-amber-300/25 bg-amber-500/10">
+          <h2 className="font-display text-2xl">Topics To Improve</h2>
+          <div className="mt-4 flex flex-wrap gap-3">
+            {improvementTopics.length === 0 ? (
+              <p className="text-sm text-slate-200">
+                No weak topic was detected in this attempt. Keep practicing the same topics consistently.
+              </p>
+            ) : (
+              improvementTopics.map((entry) => (
+                <div
+                  className="rounded-2xl border border-amber-300/30 bg-slate-950/40 px-4 py-3"
+                  key={`${entry.topic}-${entry.total}`}
+                >
+                  <p className="font-semibold text-amber-100">{entry.topic}</p>
+                  <p className="mt-1 text-xs uppercase tracking-[0.16em] text-amber-200">
+                    Accuracy {(entry.accuracy * 100).toFixed(0)}% in this test
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+        </Panel>
+
         <Panel className="mt-6">
           <h2 className="font-display text-2xl">Answer Audit</h2>
           <div className="mt-4 grid gap-3">
@@ -109,6 +137,9 @@ export default function ResultPage() {
                 key={row.qid}
               >
                 <p className="font-medium">{row.qid}. {row.question}</p>
+                <p className="mt-1 text-xs uppercase tracking-[0.16em] text-cyan-200">
+                  Topic: {row.topic || "General"}
+                </p>
                 <p className={`mt-2 text-sm ${row.isCorrect ? "text-emerald-200" : "text-red-200"}`}>
                   Your answer: {row.selected >= 0 ? row.options[row.selected] : "Not answered"}
                 </p>

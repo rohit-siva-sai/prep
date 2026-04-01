@@ -234,7 +234,11 @@ export default function AdminInterviewsPage() {
         <TopNav
           actions={[
             { href: "/admin/exams", label: "Exam Admin" },
+            { href: "/admin/coding", label: "Coding Admin" },
             { href: "/admin/performance", label: "Student Performance" },
+            { href: "/interviews", label: "Interview Tracks" },
+            { href: "/coding", label: "Coding Tracks" },
+            { href: "/interview-predictor", label: "Interview Predictor" },
             { href: "/dashboard", label: "Dashboard" },
           ]}
           subtitle="Administrator"

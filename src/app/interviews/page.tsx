@@ -187,7 +187,13 @@ export default function InterviewLobbyPage() {
       <AppBackground />
       <div className="mx-auto max-w-7xl">
         <TopNav
-          actions={[{ href: "/dashboard", label: "Dashboard" }]}
+          actions={[
+            ...(user.role === "admin" ? [{ href: "/admin/interviews", label: "Interview Admin" }] : []),
+            { href: "/tracks", label: "Exam Tracks" },
+            { href: "/coding", label: "Coding Tracks" },
+            { href: "/interview-predictor", label: "Interview Predictor" },
+            { href: "/dashboard", label: "Dashboard" },
+          ]}
           subtitle="AI Interview"
           title="Interview Lobby"
         />

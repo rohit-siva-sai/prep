@@ -14,8 +14,15 @@ import {
   updateDoc,
 } from "firebase/firestore";
 import { ADMIN_PASSWORD_HASH, ADMIN_USERNAME, defaultTests } from "@/lib/default-data";
+import {
+  normalizeAttemptReviewTopics,
+  normalizeAttemptReviewTopicsWithQuestionMap,
+  normalizeExamTest,
+} from "@/lib/exam-topics";
 import { db, firebaseReady } from "@/lib/firebase";
 import {
+  CodingAttempt,
+  CodingTrack,
   ExamAttempt,
   ExamTest,
   Interview,
@@ -27,16 +34,21 @@ import {
 
 type MaybeArchivedTest = ExamTest & { archived?: boolean; archivedAt?: number };
 type MaybeArchivedInterview = Omit<Interview, "id"> & { archived?: boolean; archivedAt?: number };
+type MaybeArchivedCodingTrack = Omit<CodingTrack, "id"> & { archived?: boolean; archivedAt?: number };
 type LocalDb = {
   users: Record<string, UserProfile>;
   tests: Record<string, MaybeArchivedTest>;
   attempts: Record<string, Omit<ExamAttempt, "id">>;
   interviews: Record<string, MaybeArchivedInterview>;
+  codingTracks: Record<string, MaybeArchivedCodingTrack>;
+  codingAttempts: Record<string, Omit<CodingAttempt, "id">>;
   interviewSessions: Record<string, Omit<InterviewSession, "id">>;
   interviewResults: Record<string, InterviewResult>;
   counters: {
     attempts: number;
     interviews: number;
+    codingTracks: number;
+    codingAttempts: number;
     interviewSessions: number;
   };
 };
@@ -55,11 +67,15 @@ const emptyLocalDb = (): LocalDb => ({
   tests: {},
   attempts: {},
   interviews: {},
+  codingTracks: {},
+  codingAttempts: {},
   interviewSessions: {},
   interviewResults: {},
   counters: {
     attempts: 0,
     interviews: 0,
+    codingTracks: 0,
+    codingAttempts: 0,
     interviewSessions: 0,
   },
 });
@@ -96,8 +112,24 @@ const usersRef = () => collection(mustDb(), "users");
 const testsRef = () => collection(mustDb(), "tests");
 const attemptsRef = () => collection(mustDb(), "attempts");
 const interviewsRef = () => collection(mustDb(), "interviews");
+const codingTracksRef = () => collection(mustDb(), "codingTracks");
+const codingAttemptsRef = () => collection(mustDb(), "codingAttempts");
 const sessionsRef = () => collection(mustDb(), "interviewSessions");
 const resultsRef = () => collection(mustDb(), "interviewResults");
+
+const buildQuestionTopicMap = (test: ExamTest | null) =>
+  new Map((test?.questions ?? []).map((question) => [question.id, question.topic || test?.name || "General"]));
+
+const attachAttemptTopicsFromTest = async (attempt: ExamAttempt) => {
+  const test = await getTest(attempt.testId);
+  const questionTopicMap = buildQuestionTopicMap(test);
+  return {
+    ...attempt,
+    review: questionTopicMap.size
+      ? normalizeAttemptReviewTopicsWithQuestionMap(attempt.review, attempt.testName, questionTopicMap)
+      : normalizeAttemptReviewTopics(attempt.review, attempt.testName),
+  } as ExamAttempt;
+};
 
 export const ensureSeedData = async () => {
   if (shouldUseFirebase()) {
@@ -116,7 +148,9 @@ export const ensureSeedData = async () => {
 
     const tests = await getDocs(testsRef());
     if (tests.empty) {
-      await Promise.all(defaultTests.map((test) => setDoc(doc(database, "tests", test.id), test)));
+      await Promise.all(
+        defaultTests.map((test) => setDoc(doc(database, "tests", test.id), normalizeExamTest(test))),
+      );
     }
     return;
   }
@@ -132,7 +166,7 @@ export const ensureSeedData = async () => {
       };
     }
     if (!Object.keys(state.tests).length) {
-      for (const test of defaultTests) state.tests[test.id] = test;
+      for (const test of defaultTests) state.tests[test.id] = normalizeExamTest(test);
     }
   });
 };
@@ -165,13 +199,13 @@ export const listTests = async () => {
     return snap.docs
       .map((d) => d.data() as ExamTest & { archived?: boolean })
       .filter((t) => !t.archived)
-      .map((t) => t as ExamTest);
+      .map((t) => normalizeExamTest(t as ExamTest));
   }
   const state = readLocalDb();
   return Object.values(state.tests)
     .filter((t) => !t.archived)
     .sort((a, b) => a.name.localeCompare(b.name))
-    .map((t) => ({ ...t }));
+    .map((t) => normalizeExamTest({ ...t }));
 };
 
 export const getTest = async (id: string) => {
@@ -179,20 +213,28 @@ export const getTest = async (id: string) => {
     const snap = await getDoc(doc(mustDb(), "tests", id));
     if (!snap.exists()) return null;
     const data = snap.data() as ExamTest & { archived?: boolean };
-    return data.archived ? null : (data as ExamTest);
+    return data.archived ? null : normalizeExamTest(data as ExamTest);
   }
   const data = readLocalDb().tests[id];
-  return !data || data.archived ? null : { ...data };
+  return !data || data.archived ? null : normalizeExamTest({ ...data });
 };
 
 export const saveTest = async (test: ExamTest) => {
+  const normalized = normalizeExamTest(test);
   if (shouldUseFirebase()) {
-    await setDoc(doc(mustDb(), "tests", test.id), test);
+    await setDoc(doc(mustDb(), "tests", normalized.id), normalized);
     return;
   }
   await withLocalDb((state) => {
-    state.tests[test.id] = { ...test };
+    state.tests[normalized.id] = { ...normalized };
   });
+};
+
+export const repairAllTestQuestionTopics = async () => {
+  const tests = await listTests();
+  const repaired = tests.map((test) => normalizeExamTest(test));
+  await Promise.all(repaired.map((test) => saveTest(test)));
+  return repaired.length;
 };
 
 export const deleteTest = async (testId: string) => {
@@ -227,35 +269,40 @@ export const getAttempt = async (attemptId: string) => {
   if (shouldUseFirebase()) {
     const snap = await getDoc(doc(mustDb(), "attempts", attemptId));
     if (!snap.exists()) return null;
-    return { id: snap.id, ...(snap.data() as Omit<ExamAttempt, "id">) } as ExamAttempt;
+    const attempt = { id: snap.id, ...(snap.data() as Omit<ExamAttempt, "id">) } as ExamAttempt;
+    return attachAttemptTopicsFromTest(attempt);
   }
   const raw = readLocalDb().attempts[attemptId];
-  return raw ? ({ id: attemptId, ...raw } as ExamAttempt) : null;
+  return raw ? attachAttemptTopicsFromTest({ id: attemptId, ...raw } as ExamAttempt) : null;
 };
 
 export const listAttemptsByUser = async (username: string) => {
   if (shouldUseFirebase()) {
     const snap = await getDocs(query(attemptsRef(), orderBy("endTs", "desc")));
-    return snap.docs
+    const attempts = snap.docs
       .map((d) => ({ id: d.id, ...(d.data() as Omit<ExamAttempt, "id">) }) as ExamAttempt)
       .filter((a) => a.username === username);
+    return Promise.all(attempts.map((attempt) => attachAttemptTopicsFromTest(attempt)));
   }
-  return Object.entries(readLocalDb().attempts)
+  const attempts = Object.entries(readLocalDb().attempts)
     .map(([id, data]) => ({ id, ...data }) as ExamAttempt)
     .filter((a) => a.username === username)
     .sort((a, b) => b.endTs - a.endTs);
+  return Promise.all(attempts.map((attempt) => attachAttemptTopicsFromTest(attempt)));
 };
 
 export const listAllAttempts = async () => {
   if (shouldUseFirebase()) {
     const snap = await getDocs(query(attemptsRef(), orderBy("endTs", "desc")));
-    return snap.docs.map(
+    const attempts = snap.docs.map(
       (d) => ({ id: d.id, ...(d.data() as Omit<ExamAttempt, "id">) }) as ExamAttempt,
     );
+    return Promise.all(attempts.map((attempt) => attachAttemptTopicsFromTest(attempt)));
   }
-  return Object.entries(readLocalDb().attempts)
+  const attempts = Object.entries(readLocalDb().attempts)
     .map(([id, data]) => ({ id, ...data }) as ExamAttempt)
     .sort((a, b) => b.endTs - a.endTs);
+  return Promise.all(attempts.map((attempt) => attachAttemptTopicsFromTest(attempt)));
 };
 
 export const listUsers = async () => {
@@ -321,6 +368,109 @@ export const deleteInterview = async (interviewId: string) => {
   await withLocalDb((state) => {
     delete state.interviews[interviewId];
   });
+};
+
+export const listCodingTracks = async () => {
+  if (shouldUseFirebase()) {
+    const snap = await getDocs(query(codingTracksRef(), orderBy("createdAt", "desc")));
+    return snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<CodingTrack, "id"> & { archived?: boolean }) }))
+      .filter((track) => !track.archived)
+      .map((track) => track as CodingTrack);
+  }
+  return Object.entries(readLocalDb().codingTracks)
+    .map(([id, data]) => ({ id, ...data }))
+    .filter((track) => !track.archived)
+    .sort((a, b) => b.createdAt - a.createdAt) as CodingTrack[];
+};
+
+export const getCodingTrack = async (id: string) => {
+  if (shouldUseFirebase()) {
+    const snap = await getDoc(doc(mustDb(), "codingTracks", id));
+    if (!snap.exists()) return null;
+    const data = snap.data() as Omit<CodingTrack, "id"> & { archived?: boolean };
+    if (data.archived) return null;
+    return { id: snap.id, ...data } as CodingTrack;
+  }
+  const data = readLocalDb().codingTracks[id];
+  return !data || data.archived ? null : ({ id, ...data } as CodingTrack);
+};
+
+export const createCodingTrack = async (track: Omit<CodingTrack, "id" | "createdAt">) => {
+  if (shouldUseFirebase()) {
+    const ref = await addDoc(codingTracksRef(), {
+      ...track,
+      createdAt: Date.now(),
+    });
+    return ref.id;
+  }
+  return withLocalDb((state) => {
+    const id = nextLocalId(state, "codingTracks", "coding");
+    state.codingTracks[id] = { ...track, createdAt: Date.now() };
+    return id;
+  });
+};
+
+export const deleteCodingTrack = async (trackId: string) => {
+  if (shouldUseFirebase()) {
+    const ref = doc(mustDb(), "codingTracks", trackId);
+    try {
+      await deleteDoc(ref);
+    } catch {
+      await setDoc(ref, { archived: true, archivedAt: Date.now() }, { merge: true });
+    }
+    return;
+  }
+  await withLocalDb((state) => {
+    delete state.codingTracks[trackId];
+  });
+};
+
+export const addCodingAttempt = async (attempt: Omit<CodingAttempt, "id">) => {
+  if (shouldUseFirebase()) {
+    const ref = await addDoc(codingAttemptsRef(), attempt);
+    return ref.id;
+  }
+  return withLocalDb((state) => {
+    const id = nextLocalId(state, "codingAttempts", "codingAttempt");
+    state.codingAttempts[id] = attempt;
+    return id;
+  });
+};
+
+export const getCodingAttempt = async (attemptId: string) => {
+  if (shouldUseFirebase()) {
+    const snap = await getDoc(doc(mustDb(), "codingAttempts", attemptId));
+    if (!snap.exists()) return null;
+    return { id: snap.id, ...(snap.data() as Omit<CodingAttempt, "id">) } as CodingAttempt;
+  }
+  const raw = readLocalDb().codingAttempts[attemptId];
+  return raw ? ({ id: attemptId, ...raw } as CodingAttempt) : null;
+};
+
+export const listCodingAttemptsByUser = async (username: string) => {
+  if (shouldUseFirebase()) {
+    const snap = await getDocs(query(codingAttemptsRef(), orderBy("submittedAt", "desc")));
+    return snap.docs
+      .map((d) => ({ id: d.id, ...(d.data() as Omit<CodingAttempt, "id">) }) as CodingAttempt)
+      .filter((attempt) => attempt.studentUsername === username);
+  }
+  return Object.entries(readLocalDb().codingAttempts)
+    .map(([id, data]) => ({ id, ...data }) as CodingAttempt)
+    .filter((attempt) => attempt.studentUsername === username)
+    .sort((a, b) => b.submittedAt - a.submittedAt);
+};
+
+export const listAllCodingAttempts = async () => {
+  if (shouldUseFirebase()) {
+    const snap = await getDocs(query(codingAttemptsRef(), orderBy("submittedAt", "desc")));
+    return snap.docs.map(
+      (d) => ({ id: d.id, ...(d.data() as Omit<CodingAttempt, "id">) }) as CodingAttempt,
+    );
+  }
+  return Object.entries(readLocalDb().codingAttempts)
+    .map(([id, data]) => ({ id, ...data }) as CodingAttempt)
+    .sort((a, b) => b.submittedAt - a.submittedAt);
 };
 
 export const listInterviewSessionsByUser = async (username: string) => {
