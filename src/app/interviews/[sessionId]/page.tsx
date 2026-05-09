@@ -79,7 +79,7 @@ const VOICE_PREF_KEYS = {
   pitch: "interview.voice.pitch",
 } as const;
 
-const buildTranscriptContext = (session: InterviewSession | null) => {
+const buildTranscriptionPrompt = (session: InterviewSession | null) => {
   if (!session) return "";
 
   const lastAiQuestion =
@@ -89,10 +89,16 @@ const buildTranscriptContext = (session: InterviewSession | null) => {
       ?.messageText || "";
 
   return [
+    "Interview transcription context.",
     `Interview title: ${session.interviewTitle}`,
     `Role: ${session.roleName}`,
     `Topics: ${session.topics}`,
+    session.projectName ? `Project name: ${session.projectName}` : "",
+    session.projectDetails ? `Project details: ${session.projectDetails}` : "",
+    session.projectLinks ? `Project links: ${session.projectLinks}` : "",
     lastAiQuestion ? `Current question: ${lastAiQuestion}` : "",
+    "Technical terms that may appear: Tailwind CSS, React, Next.js, TypeScript, JavaScript, Firebase, Firestore, API, UI, UX, GitHub, Vercel.",
+    "Transcribe technical terms accurately.",
   ]
     .filter(Boolean)
     .join("\n");
@@ -274,21 +280,12 @@ export default function InterviewChatPage() {
     setError("");
     try {
       const audioBlob = new Blob(chunks, { type: chunks[0]?.type || "audio/webm" });
-      const rawTranscript = await transcribeAudio(audioBlob);
+      const rawTranscript = await transcribeAudio(audioBlob, buildTranscriptionPrompt(session));
       if (!rawTranscript) {
         setError("No speech detected. Please try again.");
         return;
       }
-      const refinedTranscript = geminiApiKey.trim()
-        ? (
-            await callGemini<{ text: string }>("refine_transcript", {
-              text: rawTranscript,
-              context: buildTranscriptContext(session),
-              apiKey: geminiApiKey.trim(),
-            }).catch(() => ({ text: rawTranscript }))
-          ).text.trim()
-        : rawTranscript;
-      const nextAnswer = [answerRef.current.trim(), refinedTranscript || rawTranscript].filter(Boolean).join(" ");
+      const nextAnswer = [answerRef.current.trim(), rawTranscript].filter(Boolean).join(" ");
       answerRef.current = nextAnswer;
       setAnswer(nextAnswer);
     } catch (e) {
@@ -352,10 +349,14 @@ export default function InterviewChatPage() {
         conversation: [
           `Role: ${session.roleName}`,
           `Topics: ${session.topics}`,
+          session.projectName ? `Project Name: ${session.projectName}` : "",
+          session.projectDetails ? `Project Details:\n${session.projectDetails}` : "",
+          session.projectLinks ? `Project Links:\n${session.projectLinks}` : "",
           `Evaluation Criteria: ${session.evaluationCriteria}`,
           "Conversation:",
           conversation,
         ].join("\n"),
+        isProjectInterview: session.interviewType === "Project Viva",
         apiKey: geminiApiKey.trim(),
       });
       const raw = evalResp.raw;
@@ -438,11 +439,17 @@ export default function InterviewChatPage() {
             `Interview: ${session.interviewTitle}`,
             `Role: ${session.roleName}`,
             `Topics: ${session.topics}`,
+            session.projectName ? `Project Name: ${session.projectName}` : "",
+            session.projectDetails ? `Project Details:\n${session.projectDetails}` : "",
+            session.projectLinks ? `Project Links:\n${session.projectLinks}` : "",
             `Target Topic For This Question: ${targetTopic || session.roleName}`,
             `Difficulty: ${session.difficulty}`,
             `Question Flow: ${interview.questionFlow}`,
             `Follow-up Logic: ${interview.followupLogic}`,
             "Rule: Ask one fresh question and move to a new topic if the previous answer was already provided.",
+            session.interviewType === "Project Viva"
+              ? "Rule: Questions must stay grounded in the candidate's project, implementation decisions, tradeoffs, bugs, testing, deployment, and ownership."
+              : "",
             "Do not repeat or rephrase any earlier question.",
             "Conversation:",
             ...session.messages.map((m) => `${m.sender}: ${m.messageText}`),
@@ -455,6 +462,10 @@ export default function InterviewChatPage() {
               currentQuestionNo: currentQ,
               totalQuestions: totalQ,
               previousQuestions: askedQuestions,
+              isProjectInterview: session.interviewType === "Project Viva",
+              projectName: session.projectName,
+              projectDetails: session.projectDetails,
+              projectLinks: session.projectLinks,
               apiKey: geminiApiKey.trim(),
             })
           ).question;
@@ -471,6 +482,10 @@ export default function InterviewChatPage() {
                 currentQuestionNo: currentQ,
                 totalQuestions: totalQ,
                 previousQuestions: askedQuestions,
+                isProjectInterview: session.interviewType === "Project Viva",
+                projectName: session.projectName,
+                projectDetails: session.projectDetails,
+                projectLinks: session.projectLinks,
                 apiKey: geminiApiKey.trim(),
               })
             ).question;
@@ -508,7 +523,7 @@ export default function InterviewChatPage() {
       <AppBackground />
       <div className="mx-auto max-w-6xl">
         <TopNav
-          actions={[{ href: "/interviews", label: "Back" }]}
+          actions={[{ href: session.interviewType === "Project Viva" ? "/project-interviews" : "/interviews", label: "Back" }]}
           subtitle={`${session.roleName} - ${session.difficulty} - ${session.interviewType}`}
           title={session.interviewTitle}
         />
@@ -568,7 +583,7 @@ export default function InterviewChatPage() {
                 </div>
                 {micSupported ? (
                   <p className="mt-2 text-xs text-slate-400">
-                    Press Mic to record, then press it again to transcribe your answer with the Python Whisper service.
+                    Press Mic to record, then press it again to transcribe your answer with the ai_service transcription backend.
                   </p>
                 ) : (
                   <p className="mt-2 text-xs text-amber-300">
@@ -609,6 +624,19 @@ export default function InterviewChatPage() {
               {String(Math.floor(remaining / 60)).padStart(2, "0")}:
               {String(remaining % 60).padStart(2, "0")}
             </p>
+
+            {session.projectName || session.projectDetails ? (
+              <div className="mt-5 rounded-xl border border-emerald-300/20 bg-emerald-500/10 p-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-emerald-200">Project Context</p>
+                <p className="mt-2 text-sm text-slate-100">{session.projectName || session.interviewTitle}</p>
+                {session.projectLinks ? <p className="mt-1 whitespace-pre-wrap text-xs text-slate-300">{session.projectLinks}</p> : null}
+                {session.projectDetails ? (
+                  <p className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap text-xs text-slate-300">
+                    {session.projectDetails}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
 
             <label className="mt-5 block text-xs uppercase tracking-[0.2em] text-indigo-200">
               Gemini Key Override

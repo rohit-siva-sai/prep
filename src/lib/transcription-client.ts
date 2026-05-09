@@ -2,9 +2,12 @@
 
 const API_URL = "/api/transcribe";
 
-export const transcribeAudio = async (audioBlob: Blob) => {
+export const transcribeAudio = async (audioBlob: Blob, prompt?: string) => {
   const formData = new FormData();
   formData.append("audio", audioBlob, "interview-answer.wav");
+  if (prompt?.trim()) {
+    formData.append("prompt", prompt.trim());
+  }
 
   let response: Response;
   try {

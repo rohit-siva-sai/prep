@@ -70,11 +70,15 @@ export default function AdminInterviewsPage() {
       listAllInterviewSessions(),
       listAllInterviewResults(),
     ]);
-    setInterviews(list);
+    const standardInterviews = list.filter((entry) => !entry.isProjectInterview);
+    const standardInterviewIds = new Set(standardInterviews.map((entry) => entry.id));
+    setInterviews(standardInterviews);
 
     const studentUsers = users.filter((u) => u.role === "student");
     const rows = studentUsers.map((u) => {
-      const mineSessions = sessions.filter((s) => s.studentUsername === u.username);
+      const mineSessions = sessions.filter(
+        (s) => s.studentUsername === u.username && standardInterviewIds.has(s.interviewId),
+      );
       const mineResultScores = mineSessions
         .map((s) => results.find((r) => r.sessionId === s.id)?.overall)
         .filter((v): v is number => typeof v === "number");
@@ -234,9 +238,11 @@ export default function AdminInterviewsPage() {
         <TopNav
           actions={[
             { href: "/admin/exams", label: "Exam Admin" },
+            { href: "/admin/project-interviews", label: "Project Interview Admin" },
             { href: "/admin/coding", label: "Coding Admin" },
             { href: "/admin/performance", label: "Student Performance" },
             { href: "/interviews", label: "Interview Tracks" },
+            { href: "/project-interviews", label: "Project Interview Tracks" },
             { href: "/coding", label: "Coding Tracks" },
             { href: "/dashboard", label: "Dashboard" },
           ]}

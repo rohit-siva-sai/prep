@@ -49,9 +49,13 @@ export default function InterviewLobbyPage() {
       listInterviewSessionsByUser(user.username),
       listInterviewResultsByUser(user.username),
     ]);
-    setInterviews(allInterviews);
-    setSessions(allSessions);
-    setResults(allResults);
+    const standardInterviews = allInterviews.filter((entry) => !entry.isProjectInterview);
+    const standardInterviewIds = new Set(standardInterviews.map((entry) => entry.id));
+    const standardSessions = allSessions.filter((session) => standardInterviewIds.has(session.interviewId));
+    const standardSessionIds = new Set(standardSessions.map((session) => session.id));
+    setInterviews(standardInterviews);
+    setSessions(standardSessions);
+    setResults(allResults.filter((result) => standardSessionIds.has(result.sessionId)));
   };
 
   useEffect(() => {
@@ -189,7 +193,9 @@ export default function InterviewLobbyPage() {
         <TopNav
           actions={[
             ...(user.role === "admin" ? [{ href: "/admin/interviews", label: "Interview Admin" }] : []),
+            ...(user.role === "admin" ? [{ href: "/admin/project-interviews", label: "Project Interview Admin" }] : []),
             { href: "/tracks", label: "Exam Tracks" },
+            { href: "/project-interviews", label: "Project Interview Tracks" },
             { href: "/coding", label: "Coding Tracks" },
             { href: "/dashboard", label: "Dashboard" },
           ]}

@@ -31,6 +31,13 @@ const studentLaunchpad = [
     iconGlow: "text-amber-200 shadow-[0_0_28px_rgba(251,191,36,0.35)] group-hover:shadow-[0_0_34px_rgba(251,191,36,0.52)]",
   },
   {
+    href: "/project-interviews",
+    label: "Project Interview Tracks",
+    description: "Practice project viva rounds based on your uploaded project details.",
+    icon: FiMessageSquare,
+    iconGlow: "text-amber-200 shadow-[0_0_28px_rgba(251,191,36,0.35)] group-hover:shadow-[0_0_34px_rgba(251,191,36,0.52)]",
+  },
+  {
     href: "/coding",
     label: "Coding Tracks",
     description: "Solve coding rounds in the browser IDE and get evaluated feedback.",
@@ -58,6 +65,13 @@ const adminLaunchpad = [
     href: "/admin/interviews",
     label: "Interview Admin",
     description: "Configure interview flows and question sets.",
+    icon: FiMessageSquare,
+    iconGlow: "text-amber-200 shadow-[0_0_28px_rgba(251,191,36,0.35)] group-hover:shadow-[0_0_34px_rgba(251,191,36,0.52)]",
+  },
+  {
+    href: "/admin/project-interviews",
+    label: "Project Interview Admin",
+    description: "Create project-focused viva tracks from uploaded project details.",
     icon: FiMessageSquare,
     iconGlow: "text-amber-200 shadow-[0_0_28px_rgba(251,191,36,0.35)] group-hover:shadow-[0_0_34px_rgba(251,191,36,0.52)]",
   },

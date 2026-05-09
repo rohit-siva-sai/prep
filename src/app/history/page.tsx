@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { FiTrash2 } from "react-icons/fi";
 import { TopNav } from "@/components/layout/top-nav";
@@ -32,6 +32,9 @@ export default function HistoryPage() {
   const [codingAttempts, setCodingAttempts] = useState<CodingAttempt[]>([]);
   const [interviewResults, setInterviewResults] = useState<InterviewResultRow[]>([]);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [selectedExamIds, setSelectedExamIds] = useState<string[]>([]);
+  const [selectedInterviewIds, setSelectedInterviewIds] = useState<string[]>([]);
+  const [selectedCodingIds, setSelectedCodingIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
@@ -60,6 +63,13 @@ export default function HistoryPage() {
       );
       withTitle.sort((a, b) => b.createdAt - a.createdAt);
       setInterviewResults(withTitle);
+      setSelectedExamIds((current) => current.filter((id) => examAttempts.some((attempt) => attempt.id === id)));
+      setSelectedInterviewIds((current) =>
+        current.filter((id) => withTitle.some((result) => result.sessionId === id)),
+      );
+      setSelectedCodingIds((current) =>
+        current.filter((id) => userCodingAttempts.some((attempt) => attempt.id === id)),
+      );
     } catch (error) {
       notify.error(error instanceof Error ? error.message : "Failed to load result history.");
     }
@@ -69,6 +79,15 @@ export default function HistoryPage() {
     if (!user) return;
     loadHistory();
   }, [user, loadHistory]);
+
+  const allExamSelected = attempts.length > 0 && selectedExamIds.length === attempts.length;
+  const allInterviewSelected =
+    interviewResults.length > 0 && selectedInterviewIds.length === interviewResults.length;
+  const allCodingSelected = codingAttempts.length > 0 && selectedCodingIds.length === codingAttempts.length;
+
+  const selectedExamCount = selectedExamIds.length;
+  const selectedInterviewCount = selectedInterviewIds.length;
+  const selectedCodingCount = selectedCodingIds.length;
 
   const handleDeleteExam = async (attemptId: string) => {
     if (deletingId) return;
@@ -124,6 +143,73 @@ export default function HistoryPage() {
     }
   };
 
+  const handleDeleteSelectedExams = async () => {
+    if (deletingId || selectedExamIds.length === 0) return;
+    const confirmed = await confirmToast(
+      `Delete ${selectedExamIds.length} selected exam result${selectedExamIds.length === 1 ? "" : "s"}?`,
+      "This permanently removes the selected saved exam attempts.",
+    );
+    if (!confirmed) return;
+    setDeletingId("bulk-exam");
+    try {
+      await Promise.all(selectedExamIds.map((attemptId) => deleteAttempt(attemptId)));
+      setSelectedExamIds([]);
+      await loadHistory();
+      notify.success("Selected exam results deleted.");
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to delete selected exam results.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleDeleteSelectedInterviews = async () => {
+    if (deletingId || selectedInterviewIds.length === 0) return;
+    const confirmed = await confirmToast(
+      `Delete ${selectedInterviewIds.length} selected interview result${selectedInterviewIds.length === 1 ? "" : "s"}?`,
+      "This removes the selected interview sessions and their saved results.",
+    );
+    if (!confirmed) return;
+    setDeletingId("bulk-interview");
+    try {
+      await Promise.all(selectedInterviewIds.map((sessionId) => deleteInterviewSessionResult(sessionId)));
+      setSelectedInterviewIds([]);
+      await loadHistory();
+      notify.success("Selected interview results deleted.");
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to delete selected interview results.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleDeleteSelectedCoding = async () => {
+    if (deletingId || selectedCodingIds.length === 0) return;
+    const confirmed = await confirmToast(
+      `Delete ${selectedCodingIds.length} selected coding result${selectedCodingIds.length === 1 ? "" : "s"}?`,
+      "This permanently removes the selected saved coding submissions.",
+    );
+    if (!confirmed) return;
+    setDeletingId("bulk-coding");
+    try {
+      await Promise.all(selectedCodingIds.map((attemptId) => deleteCodingAttempt(attemptId)));
+      setSelectedCodingIds([]);
+      await loadHistory();
+      notify.success("Selected coding results deleted.");
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to delete selected coding results.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const interviewSelection = useMemo(
+    () => new Set(selectedInterviewIds),
+    [selectedInterviewIds],
+  );
+  const codingSelection = useMemo(() => new Set(selectedCodingIds), [selectedCodingIds]);
+  const examSelection = useMemo(() => new Set(selectedExamIds), [selectedExamIds]);
+
   if (!user) return null;
 
   return (
@@ -139,13 +225,35 @@ export default function HistoryPage() {
         />
 
         <Panel className="mt-5 p-0">
-          <div className="border-b border-white/10 bg-slate-900/40 px-4 py-3">
+          <div className="flex flex-col gap-3 border-b border-white/10 bg-slate-900/40 px-4 py-3 md:flex-row md:items-center md:justify-between">
             <h2 className="font-display text-xl">Interview Results</h2>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="rounded-lg border border-white/20 px-3 py-2 text-xs text-slate-100 hover:bg-white/10"
+                onClick={() =>
+                  setSelectedInterviewIds(
+                    allInterviewSelected ? [] : interviewResults.map((result) => result.sessionId),
+                  )
+                }
+                type="button"
+              >
+                {allInterviewSelected ? "Clear Selection" : "Select All"}
+              </button>
+              <button
+                className="rounded-lg bg-red-500/90 px-3 py-2 text-xs font-semibold text-white hover:bg-red-500 disabled:opacity-60"
+                disabled={Boolean(deletingId) || selectedInterviewCount === 0}
+                onClick={handleDeleteSelectedInterviews}
+                type="button"
+              >
+                Delete Selected ({selectedInterviewCount})
+              </button>
+            </div>
           </div>
           <div className="max-h-[31rem] overflow-auto">
             <table className="min-w-[840px] w-full text-left">
               <thead className="bg-slate-900/70 text-sm uppercase tracking-[0.12em] text-slate-200">
                 <tr>
+                  <th className="px-4 py-3">Select</th>
                   <th className="px-4 py-3">Interview</th>
                   <th className="px-4 py-3">Session ID</th>
                   <th className="px-4 py-3">Overall</th>
@@ -158,13 +266,28 @@ export default function HistoryPage() {
               <tbody>
                 {interviewResults.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-8 text-center text-slate-300" colSpan={7}>
+                    <td className="px-4 py-8 text-center text-slate-300" colSpan={8}>
                       No interview results yet.
                     </td>
                   </tr>
                 ) : (
                   interviewResults.map((result) => (
                     <tr className="border-t border-white/10" key={result.sessionId}>
+                      <td className="px-4 py-3">
+                        <input
+                          checked={interviewSelection.has(result.sessionId)}
+                          className="h-4 w-4 accent-red-400"
+                          disabled={Boolean(deletingId)}
+                          onChange={() =>
+                            setSelectedInterviewIds((current) =>
+                              current.includes(result.sessionId)
+                                ? current.filter((id) => id !== result.sessionId)
+                                : [...current, result.sessionId],
+                            )
+                          }
+                          type="checkbox"
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         <p className="font-semibold">{result.interviewTitle}</p>
                         <p className="text-xs text-slate-400">{result.roleName}</p>
@@ -203,13 +326,33 @@ export default function HistoryPage() {
         </Panel>
 
         <Panel className="mt-6 p-0">
-          <div className="border-b border-white/10 bg-slate-900/40 px-4 py-3">
+          <div className="flex flex-col gap-3 border-b border-white/10 bg-slate-900/40 px-4 py-3 md:flex-row md:items-center md:justify-between">
             <h2 className="font-display text-xl">Coding Results</h2>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="rounded-lg border border-white/20 px-3 py-2 text-xs text-slate-100 hover:bg-white/10"
+                onClick={() =>
+                  setSelectedCodingIds(allCodingSelected ? [] : codingAttempts.map((attempt) => attempt.id!))
+                }
+                type="button"
+              >
+                {allCodingSelected ? "Clear Selection" : "Select All"}
+              </button>
+              <button
+                className="rounded-lg bg-red-500/90 px-3 py-2 text-xs font-semibold text-white hover:bg-red-500 disabled:opacity-60"
+                disabled={Boolean(deletingId) || selectedCodingCount === 0}
+                onClick={handleDeleteSelectedCoding}
+                type="button"
+              >
+                Delete Selected ({selectedCodingCount})
+              </button>
+            </div>
           </div>
           <div className="max-h-[31rem] overflow-auto">
             <table className="min-w-[840px] w-full text-left">
               <thead className="bg-slate-900/70 text-sm uppercase tracking-[0.12em] text-slate-200">
                 <tr>
+                  <th className="px-4 py-3">Select</th>
                   <th className="px-4 py-3">Track</th>
                   <th className="px-4 py-3">Attempt ID</th>
                   <th className="px-4 py-3">Score</th>
@@ -222,13 +365,28 @@ export default function HistoryPage() {
               <tbody>
                 {codingAttempts.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-8 text-center text-slate-300" colSpan={7}>
+                    <td className="px-4 py-8 text-center text-slate-300" colSpan={8}>
                       No coding submissions yet.
                     </td>
                   </tr>
                 ) : (
                   codingAttempts.map((attempt) => (
                     <tr className="border-t border-white/10" key={attempt.id}>
+                      <td className="px-4 py-3">
+                        <input
+                          checked={codingSelection.has(attempt.id!)}
+                          className="h-4 w-4 accent-red-400"
+                          disabled={Boolean(deletingId)}
+                          onChange={() =>
+                            setSelectedCodingIds((current) =>
+                              current.includes(attempt.id!)
+                                ? current.filter((id) => id !== attempt.id)
+                                : [...current, attempt.id!],
+                            )
+                          }
+                          type="checkbox"
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         <p className="font-semibold">{attempt.trackTitle}</p>
                         <p className="text-xs text-slate-400">{attempt.roleName}</p>
@@ -269,13 +427,31 @@ export default function HistoryPage() {
         </Panel>
 
         <Panel className="mt-6 p-0">
-          <div className="border-b border-white/10 bg-slate-900/40 px-4 py-3">
+          <div className="flex flex-col gap-3 border-b border-white/10 bg-slate-900/40 px-4 py-3 md:flex-row md:items-center md:justify-between">
             <h2 className="font-display text-xl">Exam Results</h2>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="rounded-lg border border-white/20 px-3 py-2 text-xs text-slate-100 hover:bg-white/10"
+                onClick={() => setSelectedExamIds(allExamSelected ? [] : attempts.map((attempt) => attempt.id))}
+                type="button"
+              >
+                {allExamSelected ? "Clear Selection" : "Select All"}
+              </button>
+              <button
+                className="rounded-lg bg-red-500/90 px-3 py-2 text-xs font-semibold text-white hover:bg-red-500 disabled:opacity-60"
+                disabled={Boolean(deletingId) || selectedExamCount === 0}
+                onClick={handleDeleteSelectedExams}
+                type="button"
+              >
+                Delete Selected ({selectedExamCount})
+              </button>
+            </div>
           </div>
           <div className="max-h-[31rem] overflow-auto">
             <table className="min-w-[840px] w-full text-left">
               <thead className="bg-slate-900/70 text-sm uppercase tracking-[0.12em] text-slate-200">
                 <tr>
+                  <th className="px-4 py-3">Select</th>
                   <th className="px-4 py-3">Track</th>
                   <th className="px-4 py-3">Attempt ID</th>
                   <th className="px-4 py-3">Score</th>
@@ -288,13 +464,28 @@ export default function HistoryPage() {
               <tbody>
                 {attempts.length === 0 ? (
                   <tr>
-                    <td className="px-4 py-8 text-center text-slate-300" colSpan={7}>
+                    <td className="px-4 py-8 text-center text-slate-300" colSpan={8}>
                       No attempts yet. Start a track from dashboard.
                     </td>
                   </tr>
                 ) : (
                   attempts.map((attempt) => (
                     <tr className="border-t border-white/10" key={attempt.id}>
+                      <td className="px-4 py-3">
+                        <input
+                          checked={examSelection.has(attempt.id)}
+                          className="h-4 w-4 accent-red-400"
+                          disabled={Boolean(deletingId)}
+                          onChange={() =>
+                            setSelectedExamIds((current) =>
+                              current.includes(attempt.id)
+                                ? current.filter((id) => id !== attempt.id)
+                                : [...current, attempt.id],
+                            )
+                          }
+                          type="checkbox"
+                        />
+                      </td>
                       <td className="px-4 py-3">
                         <p className="font-semibold">{attempt.testName}</p>
                         <p className="text-xs text-slate-400">{attempt.testId}</p>

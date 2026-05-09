@@ -1,5 +1,12 @@
 # AI Assessment Platform
 
+cd e:\prep\ai_service
+python -m uvicorn app.main:app --reload
+
+PERFORMANCE_API_URL=http://127.0.0.1:8000
+
+http://127.0.0.1:8000
+
 This repo includes a Next.js assessment frontend with Gemini-powered admin and interview flows, plus hosted performance-analysis and transcription integrations.
 
 ## Frontend

@@ -136,6 +136,24 @@ const callGeminiForAction = async (
 
 const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
 
+const projectContextBlock = (payload: Record<string, unknown>) => {
+  const projectName = String(payload.projectName || "").trim();
+  const projectDetails = String(payload.projectDetails || "").trim();
+  const projectLinks = String(payload.projectLinks || "").trim();
+  const isProjectInterview = Boolean(payload.isProjectInterview);
+
+  if (!isProjectInterview && !projectName && !projectDetails && !projectLinks) return "";
+
+  return [
+    "Project interview context:",
+    projectName ? `Project Name: ${projectName}` : "",
+    projectDetails ? `Project Details:\n${projectDetails}` : "",
+    projectLinks ? `Project Links:\n${projectLinks}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+};
+
 export async function POST(request: NextRequest) {
   try {
     const { action, payload } = (await request.json()) as Body;
@@ -146,7 +164,17 @@ export async function POST(request: NextRequest) {
       try {
         const text = await callGeminiForAction(
           "intro",
-          `You are a professional interviewer. Write a concise welcome for role ${payload.roleName}, topics ${payload.topics}, difficulty ${payload.difficulty}. Keep it 3-4 sentences.`,
+          [
+            "You are a professional interviewer.",
+            `Write a concise welcome for role ${payload.roleName}, topics ${payload.topics}, difficulty ${payload.difficulty}.`,
+            payload.isProjectInterview
+              ? "This is a project-focused interview, so mention that the questions will be based on the candidate's uploaded project and their answers."
+              : "This is a standard role interview.",
+            "Keep it 3-4 sentences.",
+            projectContextBlock(payload),
+          ]
+            .filter(Boolean)
+            .join("\n"),
           undefined,
           apiKeyOverride,
           modelOverride,
@@ -161,21 +189,45 @@ export async function POST(request: NextRequest) {
       try {
         const flow = await callGeminiForAction(
           "blueprint",
-          `Create compact interview question flow for role ${payload.roleName}, topics ${payload.topics}, difficulty ${payload.difficulty}, type ${payload.interviewType}, question count ${payload.questionCount}. Max 120 words.`,
+          [
+            `Create compact interview question flow for role ${payload.roleName}, topics ${payload.topics}, difficulty ${payload.difficulty}, type ${payload.interviewType}, question count ${payload.questionCount}. Max 120 words.`,
+            payload.isProjectInterview
+              ? "Make the flow project-centric: start with project overview, then architecture, implementation choices, challenges, tradeoffs, testing, deployment, and ownership."
+              : "",
+            projectContextBlock(payload),
+          ]
+            .filter(Boolean)
+            .join("\n"),
           undefined,
           apiKeyOverride,
           modelOverride,
         );
         const followup = await callGeminiForAction(
           "blueprint",
-          `Define follow-up logic for role ${payload.roleName}, topics ${payload.topics}, difficulty ${payload.difficulty}. Max 120 words.`,
+          [
+            `Define follow-up logic for role ${payload.roleName}, topics ${payload.topics}, difficulty ${payload.difficulty}. Max 120 words.`,
+            payload.isProjectInterview
+              ? "For project interviews, ask deeper follow-ups based on architecture, design rationale, debugging, performance, tradeoffs, and the candidate's exact previous answer."
+              : "",
+            projectContextBlock(payload),
+          ]
+            .filter(Boolean)
+            .join("\n"),
           undefined,
           apiKeyOverride,
           modelOverride,
         );
         const criteria = await callGeminiForAction(
           "blueprint",
-          `Define interview evaluation criteria for role ${payload.roleName}, topics ${payload.topics}, type ${payload.interviewType}. Max 120 words.`,
+          [
+            `Define interview evaluation criteria for role ${payload.roleName}, topics ${payload.topics}, type ${payload.interviewType}. Max 120 words.`,
+            payload.isProjectInterview
+              ? "For project interviews, include ownership, architecture clarity, technical depth, tradeoff reasoning, debugging ability, testing, and communication."
+              : "",
+            projectContextBlock(payload),
+          ]
+            .filter(Boolean)
+            .join("\n"),
           undefined,
           apiKeyOverride,
           modelOverride,
@@ -201,6 +253,9 @@ export async function POST(request: NextRequest) {
         "- Do not repeat or rephrase any previously asked question.",
         "- If a topic was already answered, move to the next topic.",
         "- Keep the question concise and specific.",
+        payload.isProjectInterview
+          ? "- Make the question specific to the candidate's project, implementation decisions, bugs, tradeoffs, testing, architecture, deployment, or ownership."
+          : "",
         previousQuestions.length
           ? `Previously asked questions:\n${previousQuestions.map((q, i) => `${i + 1}. ${q}`).join("\n")}`
           : "Previously asked questions: none",
@@ -232,6 +287,7 @@ Rules:
 - improvement_subjects: comma-separated broader subject areas that need improvement
 - Base the topic and subject improvement fields only on the actual interview questions and candidate answers
 - Do not invent unrelated areas
+- If this is a project interview, evaluate project understanding, architecture reasoning, implementation depth, tradeoff awareness, debugging, testing, and ownership based only on the provided conversation
 
 ${payload.conversation}`;
       try {

@@ -68,6 +68,11 @@ export type Interview = {
   evaluationCriteria: string;
   createdBy: string;
   customQuestions: string[];
+  isProjectInterview?: boolean;
+  projectName?: string;
+  projectDetails?: string;
+  projectLinks?: string;
+  projectFileName?: string;
   createdAt: number;
 };
 
@@ -87,6 +92,9 @@ export type InterviewSession = {
   difficulty: string;
   interviewType: string;
   evaluationCriteria: string;
+  projectName?: string;
+  projectDetails?: string;
+  projectLinks?: string;
   studentUsername: string;
   studentName: string;
   status: "ACTIVE" | "PENDING_EVALUATION" | "COMPLETED";

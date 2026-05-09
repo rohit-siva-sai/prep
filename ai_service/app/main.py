@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import os
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 from .model import analyze_feedback, ensure_models_trained, predict_topic_weakness
 from .schemas import FeedbackInsights, StudentPerformanceRequest, StudentPerformanceResponse, TopicMetric
@@ -50,6 +51,26 @@ def bootstrap_models() -> None:
 
     ensure_models_trained()
     get_transcription_model()
+
+
+@app.get("/")
+def root() -> dict[str, object]:
+    """Simple root endpoint so opening the service URL shows a helpful response."""
+
+    return {
+        "service": "ai_service",
+        "status": "running",
+        "docs": "/docs",
+        "health": "/health",
+        "routes": ["/analyze-performance", "/transcribe-audio"],
+    }
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> Response:
+    """Avoid noisy 404 logs when browsers automatically request a favicon."""
+
+    return Response(status_code=204)
 
 
 @app.get("/health")
@@ -152,7 +173,7 @@ def analyze_performance(payload: StudentPerformanceRequest) -> StudentPerformanc
 
 
 @app.post("/transcribe-audio")
-async def transcribe_audio(audio: UploadFile = File(...)) -> dict[str, str]:
+async def transcribe_audio(audio: UploadFile = File(...), prompt: str = Form("")) -> dict[str, str]:
     """Transcribes spoken audio into text using Faster Whisper."""
 
     filename = (audio.filename or "").lower()
@@ -163,7 +184,11 @@ async def transcribe_audio(audio: UploadFile = File(...)) -> dict[str, str]:
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="Audio file is empty.")
 
-    transcript = transcribe_audio_bytes(audio_bytes, suffix=".wav" if filename.endswith(".wav") else ".bin")
+    transcript = transcribe_audio_bytes(
+        audio_bytes,
+        suffix=".wav" if filename.endswith(".wav") else ".bin",
+        prompt=prompt,
+    )
     if not transcript:
         raise HTTPException(status_code=422, detail="No speech detected. Please try again.")
 
