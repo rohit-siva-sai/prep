@@ -15,7 +15,7 @@ export const transcribeAudio = async (audioBlob: Blob) => {
   } catch (error) {
     if (error instanceof TypeError) {
       throw new Error(
-        "Speech API is unreachable. Make sure the deployed app has PERFORMANCE_API_URL set to your Python backend.",
+        "Speech API is unreachable. Configure PERFORMANCE_API_URL for the hosted transcription service.",
       );
     }
     throw error;

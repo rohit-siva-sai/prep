@@ -9,8 +9,6 @@ export default function ExamPredictorPage() {
       initialMode="test"
       navActions={[
         { href: "/interviews", label: "Interview Tracks" },
-        { href: "/interview-predictor", label: "Interview Predictor" },
-        { href: "/performance-enhancement", label: "Predictor Hub" },
         { href: "/dashboard", label: "Dashboard" },
       ]}
       showExamSelector

@@ -1,17 +1,22 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { FiTrash2 } from "react-icons/fi";
 import { TopNav } from "@/components/layout/top-nav";
 import { AppBackground, Panel } from "@/components/ui/primitives";
 import { useAuth } from "@/contexts/auth-context";
 import {
+  deleteAttempt,
+  deleteCodingAttempt,
+  deleteInterviewSessionResult,
   getInterviewSession,
   listCodingAttemptsByUser,
   listAttemptsByUser,
   listInterviewResultsByUser,
 } from "@/lib/data-service";
+import { confirmToast, notify } from "@/lib/toast";
 import { CodingAttempt, ExamAttempt, InterviewResult } from "@/types/models";
 import { formatDate, formatPercent } from "@/lib/utils";
 
@@ -26,14 +31,15 @@ export default function HistoryPage() {
   const [attempts, setAttempts] = useState<ExamAttempt[]>([]);
   const [codingAttempts, setCodingAttempts] = useState<CodingAttempt[]>([]);
   const [interviewResults, setInterviewResults] = useState<InterviewResultRow[]>([]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!loading && !user) router.replace("/login");
   }, [loading, user, router]);
 
-  useEffect(() => {
+  const loadHistory = useCallback(async () => {
     if (!user) return;
-    const load = async () => {
+    try {
       const [examAttempts, rawInterviewResults, userCodingAttempts] = await Promise.all([
         listAttemptsByUser(user.username),
         listInterviewResultsByUser(user.username),
@@ -54,9 +60,69 @@ export default function HistoryPage() {
       );
       withTitle.sort((a, b) => b.createdAt - a.createdAt);
       setInterviewResults(withTitle);
-    };
-    load();
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to load result history.");
+    }
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    loadHistory();
+  }, [user, loadHistory]);
+
+  const handleDeleteExam = async (attemptId: string) => {
+    if (deletingId) return;
+    const confirmed = await confirmToast("Delete this exam result?", "This permanently removes the saved attempt.");
+    if (!confirmed) return;
+    setDeletingId(attemptId);
+    try {
+      await deleteAttempt(attemptId);
+      await loadHistory();
+      notify.success("Exam result deleted.");
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to delete exam result.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleDeleteInterview = async (sessionId: string) => {
+    if (deletingId) return;
+    const confirmed = await confirmToast(
+      "Delete this interview result?",
+      "This removes both the interview session and its saved result.",
+    );
+    if (!confirmed) return;
+    setDeletingId(sessionId);
+    try {
+      await deleteInterviewSessionResult(sessionId);
+      await loadHistory();
+      notify.success("Interview result deleted.");
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to delete interview result.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const handleDeleteCoding = async (attemptId: string) => {
+    if (deletingId) return;
+    const confirmed = await confirmToast(
+      "Delete this coding result?",
+      "This permanently removes the saved coding submission.",
+    );
+    if (!confirmed) return;
+    setDeletingId(attemptId);
+    try {
+      await deleteCodingAttempt(attemptId);
+      await loadHistory();
+      notify.success("Coding result deleted.");
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : "Failed to delete coding result.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   if (!user) return null;
 
@@ -66,8 +132,6 @@ export default function HistoryPage() {
       <div className="mx-auto max-w-7xl">
         <TopNav
           actions={[
-            { href: "/exam-predictor", label: "Test Predictor" },
-            { href: "/interview-predictor", label: "Interview Predictor" },
             { href: "/dashboard", label: "Dashboard" },
           ]}
           subtitle="Progress Ledger"
@@ -111,9 +175,24 @@ export default function HistoryPage() {
                       <td className="px-4 py-3">{result.communication}%</td>
                       <td className="px-4 py-3 text-sm">{formatDate(result.createdAt)}</td>
                       <td className="px-4 py-3">
-                        <Link className="text-cyan-300 hover:underline" href={`/interviews/result/${result.sessionId}`}>
-                          Open
-                        </Link>
+                        <div className="flex items-center gap-3">
+                          <Link className="text-cyan-300 hover:underline" href={`/interviews/result/${result.sessionId}`}>
+                            Open
+                          </Link>
+                          <button
+                            aria-label="Delete interview result"
+                            className="inline-flex items-center justify-center rounded-lg bg-red-500/90 p-2 text-white hover:bg-red-500 disabled:opacity-60"
+                            disabled={Boolean(deletingId)}
+                            onClick={() => handleDeleteInterview(result.sessionId)}
+                            type="button"
+                          >
+                            {deletingId === result.sessionId ? (
+                              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                            ) : (
+                              <FiTrash2 />
+                            )}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -162,9 +241,24 @@ export default function HistoryPage() {
                       <td className="px-4 py-3">{attempt.language}</td>
                       <td className="px-4 py-3 text-sm">{formatDate(attempt.submittedAt)}</td>
                       <td className="px-4 py-3">
-                        <Link className="text-cyan-300 hover:underline" href={`/coding/result/${attempt.id}`}>
-                          Open
-                        </Link>
+                        <div className="flex items-center gap-3">
+                          <Link className="text-cyan-300 hover:underline" href={`/coding/result/${attempt.id}`}>
+                            Open
+                          </Link>
+                          <button
+                            aria-label="Delete coding result"
+                            className="inline-flex items-center justify-center rounded-lg bg-red-500/90 p-2 text-white hover:bg-red-500 disabled:opacity-60"
+                            disabled={Boolean(deletingId)}
+                            onClick={() => handleDeleteCoding(attempt.id!)}
+                            type="button"
+                          >
+                            {deletingId === attempt.id ? (
+                              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                            ) : (
+                              <FiTrash2 />
+                            )}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -213,9 +307,24 @@ export default function HistoryPage() {
                       </td>
                       <td className="px-4 py-3 text-sm">{formatDate(attempt.endTs)}</td>
                       <td className="px-4 py-3">
-                        <Link className="text-cyan-300 hover:underline" href={`/result/${attempt.id}`}>
-                          Open
-                        </Link>
+                        <div className="flex items-center gap-3">
+                          <Link className="text-cyan-300 hover:underline" href={`/result/${attempt.id}`}>
+                            Open
+                          </Link>
+                          <button
+                            aria-label="Delete exam result"
+                            className="inline-flex items-center justify-center rounded-lg bg-red-500/90 p-2 text-white hover:bg-red-500 disabled:opacity-60"
+                            disabled={Boolean(deletingId)}
+                            onClick={() => handleDeleteExam(attempt.id)}
+                            type="button"
+                          >
+                            {deletingId === attempt.id ? (
+                              <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+                            ) : (
+                              <FiTrash2 />
+                            )}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))

@@ -196,7 +196,7 @@ export default function AdminExamsPage() {
     if (deletingTestId) return;
     const confirmed = await confirmToast(
       `Delete test ${id}?`,
-      "This removes the test configuration from the exam list.",
+      "This removes the test configuration and all saved exam attempts for this test.",
     );
     if (!confirmed) return;
     setDeletingTestId(id);
@@ -357,8 +357,6 @@ export default function AdminExamsPage() {
             { href: "/admin/interviews", label: "Interview Admin" },
             { href: "/admin/coding", label: "Coding Admin" },
             { href: "/admin/performance", label: "Student Performance" },
-            { href: "/performance-enhancement", label: "Predictor Hub" },
-            { href: "/interview-predictor", label: "Interview Predictor" },
             { href: "/dashboard", label: "Dashboard" },
           ]}
           subtitle="Administrator"

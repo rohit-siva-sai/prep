@@ -111,8 +111,6 @@ export default function AdminPerformancePage() {
             { href: "/admin/exams", label: "Exam Admin" },
             { href: "/admin/interviews", label: "Interview Admin" },
             { href: "/admin/coding", label: "Coding Admin" },
-            { href: "/performance-enhancement", label: "Predictor Hub" },
-            { href: "/interview-predictor", label: "Interview Predictor" },
             { href: "/dashboard", label: "Dashboard" },
           ]}
         />

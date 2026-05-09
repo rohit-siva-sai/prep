@@ -208,7 +208,7 @@ export default function AdminInterviewsPage() {
     if (deletingInterviewId) return;
     const confirmed = await confirmToast(
       "Delete this interview configuration?",
-      "Existing session history will remain.",
+      "This removes the interview configuration and all linked session history and results.",
     );
     if (!confirmed) return;
     setDeletingInterviewId(interviewId);
@@ -238,7 +238,6 @@ export default function AdminInterviewsPage() {
             { href: "/admin/performance", label: "Student Performance" },
             { href: "/interviews", label: "Interview Tracks" },
             { href: "/coding", label: "Coding Tracks" },
-            { href: "/interview-predictor", label: "Interview Predictor" },
             { href: "/dashboard", label: "Dashboard" },
           ]}
           subtitle="Administrator"

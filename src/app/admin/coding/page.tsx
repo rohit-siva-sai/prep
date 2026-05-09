@@ -292,7 +292,7 @@ export default function AdminCodingPage() {
     if (deletingTrackId) return;
     const confirmed = await confirmToast(
       "Delete this coding track?",
-      "Existing student coding attempts will remain in history.",
+      "This removes the coding track and all linked student coding results.",
     );
     if (!confirmed) return;
     setDeletingTrackId(trackId);

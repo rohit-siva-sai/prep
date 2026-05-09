@@ -215,7 +215,7 @@ export function PredictionWorkspace({
                 <p className="mt-2 max-w-3xl text-sm text-slate-300">
                   {showInterviewSelector && showExamSelector
                     ? "Use interview-only analysis or run a combined view that blends interview feedback with selected test attempts."
-                    : "Use your selected assessment history to call the Python prediction service."}
+                    : "Use your selected assessment history to call the hosted performance analysis service."}
                 </p>
             </div>
             <div className={`grid gap-2 ${allowedModes.length > 1 ? "sm:grid-cols-2" : ""}`}>
@@ -432,26 +432,18 @@ export function PredictionWorkspace({
 
           <Panel className="border-emerald-300/20 bg-emerald-500/10">
             <p className="text-xs uppercase tracking-[0.25em] text-emerald-200">Backend Connection</p>
-            <h2 className="mt-2 font-display text-2xl">Python API endpoint</h2>
+            <h2 className="mt-2 font-display text-2xl">Performance API endpoint</h2>
             <div className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-500/10 p-4 text-sm text-amber-100">
-              In local development, the app proxies requests to your Python API. In production, set
-              <code> PERFORMANCE_API_URL</code> on the Next.js deployment so the proxy can reach your hosted
-              Python service.
+              Configure <code>PERFORMANCE_API_URL</code> on the deployment to point to your hosted analysis service.
+              This app no longer falls back to a localhost backend.
             </div>
             <div className="mt-4 space-y-3 text-sm text-slate-100">
-              <p>
-                <code>cd ai_service</code>
-              </p>
-              <p>
-                <code>python -m uvicorn app.main:app --reload</code>
-              </p>
               <p>
                 <code>POST /api/performance/analyze-performance</code>
               </p>
             </div>
             <p className="mt-4 text-sm text-slate-200">
-              Recommended for deployment: host the Python API separately, then set
-              <code> PERFORMANCE_API_URL</code> on Vercel to that backend base URL.
+              Gemini-powered app features continue to use the existing Next.js API routes separately.
             </p>
           </Panel>
         </section>

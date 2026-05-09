@@ -191,7 +191,6 @@ export default function InterviewLobbyPage() {
             ...(user.role === "admin" ? [{ href: "/admin/interviews", label: "Interview Admin" }] : []),
             { href: "/tracks", label: "Exam Tracks" },
             { href: "/coding", label: "Coding Tracks" },
-            { href: "/interview-predictor", label: "Interview Predictor" },
             { href: "/dashboard", label: "Dashboard" },
           ]}
           subtitle="AI Interview"

@@ -66,7 +66,7 @@ export const analyzePerformance = async (payload: PredictionRequest): Promise<Pr
   } catch (error) {
     if (error instanceof TypeError) {
       throw new Error(
-        "Prediction API is unreachable. Make sure the deployed app has PERFORMANCE_API_URL set to your Python backend.",
+        "Prediction API is unreachable. Configure PERFORMANCE_API_URL for the hosted analysis service.",
       );
     }
     throw error;

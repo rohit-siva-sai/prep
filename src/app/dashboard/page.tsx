@@ -5,10 +5,8 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   FiActivity,
-  FiBarChart2,
   FiBookOpen,
   FiClipboard,
-  FiCpu,
   FiCode,
   FiMessageSquare,
   FiShield,
@@ -44,20 +42,6 @@ const studentLaunchpad = [
     label: "Result Stream",
     description: "See your latest exam and interview results.",
     icon: FiActivity,
-    iconGlow: "text-amber-200 shadow-[0_0_28px_rgba(251,191,36,0.35)] group-hover:shadow-[0_0_34px_rgba(251,191,36,0.52)]",
-  },
-  {
-    href: "/exam-predictor",
-    label: "Test Predictor",
-    description: "Estimate performance trends before attempting the full track.",
-    icon: FiBarChart2,
-    iconGlow: "text-amber-200 shadow-[0_0_28px_rgba(251,191,36,0.35)] group-hover:shadow-[0_0_34px_rgba(251,191,36,0.52)]",
-  },
-  {
-    href: "/interview-predictor",
-    label: "Interview Predictor",
-    description: "Preview likely interview readiness and improvement areas.",
-    icon: FiCpu,
     iconGlow: "text-amber-200 shadow-[0_0_28px_rgba(251,191,36,0.35)] group-hover:shadow-[0_0_34px_rgba(251,191,36,0.52)]",
   },
 ];

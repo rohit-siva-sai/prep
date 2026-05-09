@@ -246,10 +246,19 @@ export const deleteTest = async (testId: string) => {
       // Fallback for rules that deny hard delete: archive it so it disappears from active lists.
       await setDoc(ref, { archived: true, archivedAt: Date.now() }, { merge: true });
     }
+    const attemptDocs = await getDocs(query(attemptsRef(), orderBy("endTs", "desc")));
+    await Promise.all(
+      attemptDocs.docs
+        .filter((entry) => (entry.data() as Omit<ExamAttempt, "id">).testId === testId)
+        .map((entry) => deleteDoc(entry.ref)),
+    );
     return;
   }
   await withLocalDb((state) => {
     delete state.tests[testId];
+    for (const [attemptId, attempt] of Object.entries(state.attempts)) {
+      if (attempt.testId === testId) delete state.attempts[attemptId];
+    }
   });
 };
 
@@ -303,6 +312,16 @@ export const listAllAttempts = async () => {
     .map(([id, data]) => ({ id, ...data }) as ExamAttempt)
     .sort((a, b) => b.endTs - a.endTs);
   return Promise.all(attempts.map((attempt) => attachAttemptTopicsFromTest(attempt)));
+};
+
+export const deleteAttempt = async (attemptId: string) => {
+  if (shouldUseFirebase()) {
+    await deleteDoc(doc(mustDb(), "attempts", attemptId));
+    return;
+  }
+  await withLocalDb((state) => {
+    delete state.attempts[attemptId];
+  });
 };
 
 export const listUsers = async () => {
@@ -363,10 +382,21 @@ export const deleteInterview = async (interviewId: string) => {
       // Fallback for rules that deny hard delete: archive it so it disappears from active lists.
       await setDoc(ref, { archived: true, archivedAt: Date.now() }, { merge: true });
     }
+    const sessionDocs = await getDocs(query(sessionsRef(), orderBy("startTime", "desc")));
+    const linkedSessionIds = sessionDocs.docs
+      .filter((entry) => (entry.data() as Omit<InterviewSession, "id">).interviewId === interviewId)
+      .map((entry) => entry.id);
+    await Promise.all(sessionDocs.docs.filter((entry) => linkedSessionIds.includes(entry.id)).map((entry) => deleteDoc(entry.ref)));
+    await Promise.all(linkedSessionIds.map((sessionId) => deleteDoc(doc(mustDb(), "interviewResults", sessionId)).catch(() => undefined)));
     return;
   }
   await withLocalDb((state) => {
     delete state.interviews[interviewId];
+    for (const [sessionId, session] of Object.entries(state.interviewSessions)) {
+      if (session.interviewId !== interviewId) continue;
+      delete state.interviewSessions[sessionId];
+      delete state.interviewResults[sessionId];
+    }
   });
 };
 
@@ -419,10 +449,19 @@ export const deleteCodingTrack = async (trackId: string) => {
     } catch {
       await setDoc(ref, { archived: true, archivedAt: Date.now() }, { merge: true });
     }
+    const codingAttemptDocs = await getDocs(query(codingAttemptsRef(), orderBy("submittedAt", "desc")));
+    await Promise.all(
+      codingAttemptDocs.docs
+        .filter((entry) => (entry.data() as Omit<CodingAttempt, "id">).trackId === trackId)
+        .map((entry) => deleteDoc(entry.ref)),
+    );
     return;
   }
   await withLocalDb((state) => {
     delete state.codingTracks[trackId];
+    for (const [attemptId, attempt] of Object.entries(state.codingAttempts)) {
+      if (attempt.trackId === trackId) delete state.codingAttempts[attemptId];
+    }
   });
 };
 
@@ -471,6 +510,16 @@ export const listAllCodingAttempts = async () => {
   return Object.entries(readLocalDb().codingAttempts)
     .map(([id, data]) => ({ id, ...data }) as CodingAttempt)
     .sort((a, b) => b.submittedAt - a.submittedAt);
+};
+
+export const deleteCodingAttempt = async (attemptId: string) => {
+  if (shouldUseFirebase()) {
+    await deleteDoc(doc(mustDb(), "codingAttempts", attemptId));
+    return;
+  }
+  await withLocalDb((state) => {
+    delete state.codingAttempts[attemptId];
+  });
 };
 
 export const listInterviewSessionsByUser = async (username: string) => {
@@ -642,4 +691,18 @@ export const listAllInterviewResults = async () => {
     return snap.docs.map((d) => d.data() as InterviewResult);
   }
   return Object.values(readLocalDb().interviewResults).sort((a, b) => b.createdAt - a.createdAt);
+};
+
+export const deleteInterviewSessionResult = async (sessionId: string) => {
+  if (shouldUseFirebase()) {
+    await Promise.all([
+      deleteDoc(doc(mustDb(), "interviewSessions", sessionId)).catch(() => undefined),
+      deleteDoc(doc(mustDb(), "interviewResults", sessionId)).catch(() => undefined),
+    ]);
+    return;
+  }
+  await withLocalDb((state) => {
+    delete state.interviewSessions[sessionId];
+    delete state.interviewResults[sessionId];
+  });
 };

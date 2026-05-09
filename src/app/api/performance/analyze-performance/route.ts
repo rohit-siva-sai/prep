@@ -3,8 +3,10 @@ import { NextRequest, NextResponse } from "next/server";
 const getBackendBaseUrl = () => {
   const value =
     process.env.PERFORMANCE_API_URL ||
-    process.env.NEXT_PUBLIC_PERFORMANCE_API_URL ||
-    "http://127.0.0.1:8000";
+    process.env.NEXT_PUBLIC_PERFORMANCE_API_URL;
+  if (!value) {
+    throw new Error("PERFORMANCE_API_URL is not configured.");
+  }
   return value.replace(/\/+$/, "");
 };
 
@@ -29,8 +31,8 @@ export async function POST(request: NextRequest) {
       {
         detail:
           error instanceof Error
-            ? `Python analysis service is unreachable. ${error.message}`
-            : "Python analysis service is unreachable.",
+            ? `Performance analysis service is unavailable. ${error.message}`
+            : "Performance analysis service is unavailable.",
       },
       { status: 502 },
     );
